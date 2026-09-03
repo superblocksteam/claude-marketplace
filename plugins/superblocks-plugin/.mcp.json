@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "superblocks": {
+      "command": "npx",
+      "args": [
+        "--yes",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        "--registry=https://registry.npmjs.org/",
+        "--@superblocksteam:registry=https://registry.npmjs.org/",
+        "--cache=${CLAUDE_PLUGIN_DATA}/npm-cache",
+        "--prefix=${CLAUDE_PLUGIN_DATA}",
+        "--package=@superblocksteam/cli@2.0.156",
+        "--",
+        "superblocks",
+        "gateway",
+        "serve"
+      ],
+      "env": {
+        "SUPERBLOCKS_API_TOKEN": "${user_config.api_token}",
+        "SUPERBLOCKS_SERVER_URL": "${user_config.server_url}"
+      },
+      "cwd": "${CLAUDE_PLUGIN_DATA}"
+    }
+  }
+}
