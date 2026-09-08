@@ -50,8 +50,9 @@ the live-edit environment to fetch those clouds.
    and wait for their answer. Only if they approve, call `edit_app` with
    `planAction: "approve"` instead of planning it again. Do not run a second
    “migrate everything” plan.
-   Mode is per call and never sticks: every `edit_app` below plans unless it
-   passes `mode: "BUILD"`, so send it on each slice.
+   Approval is the exception: `planAction: "approve"` builds the pending plan.
+   After that, mode is per call and never sticks: every `edit_app` below plans
+   unless it passes `mode: "BUILD"`, so send it on each slice.
 4. One backend operation per `edit_app`, then `check_app_progress` until
    `testApi` activity exists. There is no MCP SQL tool.
 5. One UI route per `edit_app`, wired to APIs that already passed.
@@ -60,7 +61,11 @@ the live-edit environment to fetch those clouds.
    the next prompt in what Superblocks actually wrote. `list_knowledge` /
    `get_knowledge` for org playbooks.
 
-`list_applications` if `start_app` errors: the app may already exist.
+If `start_app` errors, follow its returned recovery instructions using its
+application ID. Retry with `edit_app` unless `pendingAction` is
+`"start_new_app"`; then call `start_app` once with `replacesApplicationId`
+set to the failed application ID. Use `list_applications` only when no ID was
+returned.
 
 ## Primitive map (not Next.js)
 
