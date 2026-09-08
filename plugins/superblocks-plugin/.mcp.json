@@ -4,6 +4,7 @@
       "command": "npx",
       "args": [
         "--yes",
+        "--prefer-online",
         "--ignore-scripts",
         "--no-audit",
         "--no-fund",
@@ -11,7 +12,7 @@
         "--@superblocksteam:registry=https://registry.npmjs.org/",
         "--cache=${CLAUDE_PLUGIN_DATA}/npm-cache",
         "--prefix=${CLAUDE_PLUGIN_DATA}",
-        "--package=@superblocksteam/cli@2.0.156",
+        "--package=@superblocksteam/cli@ephemeral",
         "--",
         "superblocks",
         "gateway",
