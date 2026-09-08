@@ -1,0 +1,12 @@
+{
+  "name": "superblocks",
+  "displayName": "Superblocks",
+  "description": "Build, import, and manage Superblocks applications from Claude. After installing, select Finish setup to authenticate.",
+  "author": {
+    "name": "Superblocks",
+    "url": "https://www.superblocks.com"
+  },
+  "homepage": "https://www.superblocks.com",
+  "skills": "./skills/",
+  "version": "2.0.157-cowork.2"
+}

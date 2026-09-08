@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "description": "Superblocks plugins for Claude.",
+  "name": "superblocks",
+  "owner": {
+    "name": "Superblocks"
+  },
+  "plugins": [
+    {
+      "author": {
+        "name": "Superblocks",
+        "url": "https://www.superblocks.com"
+      },
+      "description": "Build, import, and manage Superblocks applications from Claude. After installing, select Finish setup to authenticate.",
+      "displayName": "Superblocks",
+      "homepage": "https://www.superblocks.com",
+      "name": "superblocks",
+      "source": "./plugins/superblocks-plugin",
+      "version": "2.0.157-cowork.2"
+    }
+  ]
+}

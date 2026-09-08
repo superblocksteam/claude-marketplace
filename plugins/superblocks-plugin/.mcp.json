@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "superblocks": {
+      "command": "npx",
+      "args": [
+        "--yes",
+        "--prefer-online",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        "--registry=https://registry.npmjs.org/",
+        "--@superblocksteam:registry=https://registry.npmjs.org/",
+        "--package=@superblocksteam/cli@ephemeral",
+        "--",
+        "superblocks",
+        "gateway",
+        "serve"
+      ]
+    }
+  }
+}
