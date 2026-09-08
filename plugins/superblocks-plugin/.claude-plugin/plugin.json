@@ -1,28 +1,12 @@
 {
   "name": "superblocks",
   "displayName": "Superblocks",
-  "description": "Build, import, and manage Superblocks applications from Claude.",
+  "description": "Build, import, and manage Superblocks applications from Claude. After installing, select Finish setup to authenticate.",
   "author": {
     "name": "Superblocks",
     "url": "https://www.superblocks.com"
   },
   "homepage": "https://www.superblocks.com",
   "skills": "./skills/",
-  "userConfig": {
-    "api_token": {
-      "type": "string",
-      "title": "Superblocks API token",
-      "description": "A Superblocks personal API key.",
-      "sensitive": true,
-      "required": true
-    },
-    "server_url": {
-      "type": "string",
-      "title": "Superblocks server URL",
-      "description": "The URL of your Superblocks instance.",
-      "default": "https://app.superblocks.com",
-      "required": true
-    }
-  },
-  "version": "2.0.156-cowork.611c0e3a90cd"
+  "version": "2.0.157-cowork.1"
 }
