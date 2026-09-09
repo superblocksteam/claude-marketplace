@@ -13,7 +13,7 @@
         "--package=@superblocksteam/cli@ephemeral",
         "--",
         "superblocks",
-        "gateway",
+        "mcp",
         "serve"
       ]
     }
