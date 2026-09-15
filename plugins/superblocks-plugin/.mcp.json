@@ -10,7 +10,7 @@
         "--no-fund",
         "--registry=https://registry.npmjs.org/",
         "--@superblocksteam:registry=https://registry.npmjs.org/",
-        "--package=@superblocksteam/cli@ephemeral",
+        "--package=@superblocksteam/cli@beta",
         "--",
         "superblocks",
         "mcp",
