@@ -20,14 +20,14 @@ computer running Claude Desktop.
 On macOS or Linux, give them this one-line command:
 
 ```bash
-umask 077 && npx --yes --prefer-online --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/ --@superblocksteam:registry=https://registry.npmjs.org/ --package=@superblocksteam/cli@ephemeral -- superblocks config set domain YOUR_SUPERBLOCKS_HOST && npx --yes --prefer-online --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/ --@superblocksteam:registry=https://registry.npmjs.org/ --package=@superblocksteam/cli@ephemeral -- superblocks login
+umask 077 && npx --yes --prefer-online --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/ --@superblocksteam:registry=https://registry.npmjs.org/ --package=@superblocksteam/cli@beta -- superblocks config set domain YOUR_SUPERBLOCKS_HOST && npx --yes --prefer-online --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/ --@superblocksteam:registry=https://registry.npmjs.org/ --package=@superblocksteam/cli@beta -- superblocks login
 ```
 
 On Windows, give them this one-line command, which works from Windows PowerShell
 5.1 and newer:
 
 ```powershell
-cmd.exe /d /s /c "npx --yes --prefer-online --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/ --@superblocksteam:registry=https://registry.npmjs.org/ --package=@superblocksteam/cli@ephemeral -- superblocks config set domain YOUR_SUPERBLOCKS_HOST && npx --yes --prefer-online --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/ --@superblocksteam:registry=https://registry.npmjs.org/ --package=@superblocksteam/cli@ephemeral -- superblocks login"
+cmd.exe /d /s /c "npx --yes --prefer-online --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/ --@superblocksteam:registry=https://registry.npmjs.org/ --package=@superblocksteam/cli@beta -- superblocks config set domain YOUR_SUPERBLOCKS_HOST && npx --yes --prefer-online --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/ --@superblocksteam:registry=https://registry.npmjs.org/ --package=@superblocksteam/cli@beta -- superblocks login"
 ```
 
 Never ask the user to paste their Superblocks API key into Claude. The login
