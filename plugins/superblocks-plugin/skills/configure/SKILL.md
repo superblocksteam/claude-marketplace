@@ -13,9 +13,11 @@ Ask which Superblocks host the user connects to. Default to
 provided it. Accept only a bare hostname containing letters, digits, hyphens,
 and dots, with no credentials, port, path, query, or fragment.
 
-Never insert the user's response into shell code. Tell them to replace the
-literal `YOUR_SUPERBLOCKS_HOST` themselves after opening a terminal on the
-computer running Claude Desktop.
+Once the host passes that check, replace `YOUR_SUPERBLOCKS_HOST` with it in the
+command below, so the user can run the command as given. If the answer fails the
+check, do not insert it: ask again, and leave the literal
+`YOUR_SUPERBLOCKS_HOST` in place for them to replace after opening a terminal on
+the computer running Claude Desktop.
 
 On macOS or Linux, give them this one-line command:
 
