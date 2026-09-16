@@ -15,7 +15,10 @@
         "superblocks",
         "mcp",
         "serve"
-      ]
+      ],
+      "env": {
+        "NODE_DEBUG": "gateway"
+      }
     }
   }
 }
