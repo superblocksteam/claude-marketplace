@@ -43,7 +43,7 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   );
   assert.equal(
     server.env.NPM_CONFIG_PACKAGE,
-    "@superblocksteam/cli@beta",
+    "${NPM_CONFIG_PACKAGE:-@superblocksteam/cli@beta}",
   );
   assert.equal("userConfig" in manifest, false);
   assert.match(setup, /Node\.js 24.*npm\s+10/is);
@@ -64,10 +64,7 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
 test("npx installs the package selected by NPM_CONFIG_PACKAGE", async (t) => {
   const mcp = await readJson("plugins/superblocks-plugin/.mcp.json");
   const server = mcp.mcpServers.superblocks;
-  const packageEnvName = Object.entries(server.env).find(
-    ([, value]) => value === "@superblocksteam/cli@beta",
-  )?.[0];
-  assert.equal(packageEnvName, "NPM_CONFIG_PACKAGE");
+  const packageEnvName = "NPM_CONFIG_PACKAGE";
 
   const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-npx-"));
   t.after(() => rm(directory, { force: true, recursive: true }));
@@ -77,7 +74,7 @@ test("npx installs the package selected by NPM_CONFIG_PACKAGE", async (t) => {
     join(packageDirectory, "package.json"),
     JSON.stringify({
       bin: { superblocks: "superblocks.js" },
-      name: "superblocks-cli-test",
+      name: "@superblocksteam/cli",
       version: "1.0.0",
     }),
   );
@@ -98,7 +95,7 @@ test("npx installs the package selected by NPM_CONFIG_PACKAGE", async (t) => {
       cwd: directory,
       env: {
         ...process.env,
-        [packageEnvName]: pathToFileURL(packageDirectory).href,
+        [packageEnvName]: `@superblocksteam/cli@${pathToFileURL(packageDirectory).href}`,
         NPM_CONFIG_CACHE: join(directory, "cache"),
         NPM_CONFIG_OFFLINE: "true",
         npm_config_package: "package-that-must-not-run",
@@ -108,7 +105,7 @@ test("npx installs the package selected by NPM_CONFIG_PACKAGE", async (t) => {
   assert.equal(stdout, "configured package\n");
 });
 
-test("MCP launch fails closed without a configured package", async () => {
+test("MCP launch fails closed without a valid package", async () => {
   const launcher = fileURLToPath(
     repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
   );
@@ -123,9 +120,18 @@ test("MCP launch fails closed without a configured package", async () => {
       env: {
         ...process.env,
         NPM_CONFIG_OFFLINE: "true",
-        NPM_CONFIG_PACKAGE: "package & command",
+        NPM_CONFIG_PACKAGE: "superblocks",
       },
     }),
-    /NPM_CONFIG_PACKAGE contains unsupported characters/,
+    /NPM_CONFIG_PACKAGE must select @superblocksteam\/cli/,
+  );
+  await assert.rejects(
+    execFile(process.execPath, [launcher], {
+      env: {
+        ...process.env,
+        NPM_CONFIG_PACKAGE: "@superblocksteam/cli@^2.0.0",
+      },
+    }),
+    /NPM_CONFIG_PACKAGE must use an exact version, tag, or file URL/,
   );
 });

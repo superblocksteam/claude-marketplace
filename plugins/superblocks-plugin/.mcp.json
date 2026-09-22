@@ -7,7 +7,7 @@
       ],
       "env": {
         "NODE_DEBUG": "gateway",
-        "NPM_CONFIG_PACKAGE": "@superblocksteam/cli@beta",
+        "NPM_CONFIG_PACKAGE": "${NPM_CONFIG_PACKAGE:-@superblocksteam/cli@beta}",
         "SUPERBLOCKS_MCP_BROWSER_LOGIN": "true",
         "SUPERBLOCKS_SERVER_URL": "https://app.superblocks.com"
       }
