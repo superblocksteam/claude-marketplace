@@ -14,12 +14,9 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   const server = mcp.mcpServers.superblocks;
 
   assert.equal(marketplace.plugins[0].version, manifest.version);
-  assert.deepEqual(server.args.slice(-4), [
-    "superblocks",
-    "mcp",
-    "serve",
-    "--browser-login",
-  ]);
+  assert.deepEqual(server.args.slice(-3), ["superblocks", "mcp", "serve"]);
+  assert.equal(server.args.includes("--browser-login"), false);
+  assert.equal(server.env.SUPERBLOCKS_MCP_BROWSER_LOGIN, "true");
   assert.equal(
     server.env.SUPERBLOCKS_SERVER_URL,
     "https://app.superblocks.com",

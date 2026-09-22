@@ -13,11 +13,11 @@
         "--",
         "superblocks",
         "mcp",
-        "serve",
-        "--browser-login"
+        "serve"
       ],
       "env": {
         "NPM_CONFIG_PACKAGE": "@superblocksteam/cli@beta",
+        "SUPERBLOCKS_MCP_BROWSER_LOGIN": "true",
         "SUPERBLOCKS_SERVER_URL": "https://app.superblocks.com"
       }
     }
