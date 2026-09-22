@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { execFile as execFileCallback } from "node:child_process";
+import { execFile as execFileCallback, spawn } from "node:child_process";
+import { once } from "node:events";
 import {
   chmod,
   mkdir,
@@ -61,6 +62,55 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   );
   assert.doesNotMatch(setup, /API key|superblocks login|config set domain/i);
 });
+
+test(
+  "launcher becomes npx so signal delivery needs no supervisor",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-signal-"));
+    const signalFile = join(directory, "signal");
+    const npx = join(directory, "npx");
+    await writeFile(
+      npx,
+      `#!/usr/bin/env node
+const { writeFileSync } = require("node:fs");
+process.on("SIGTERM", () => {
+  writeFileSync(process.env.TEST_SIGNAL_FILE, "SIGTERM");
+  process.exit(0);
+});
+console.log(process.pid);
+setInterval(() => {}, 1_000);
+`,
+    );
+    await chmod(npx, 0o755);
+
+    const launcher = fileURLToPath(
+      repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
+    );
+    const child = spawn(process.execPath, [launcher], {
+      env: {
+        ...process.env,
+        NPM_CONFIG_PACKAGE: "@superblocksteam/cli@beta",
+        PATH: `${directory}:${process.env.PATH}`,
+        TEST_SIGNAL_FILE: signalFile,
+      },
+    });
+    t.after(async () => {
+      if (child.exitCode === null) child.kill("SIGKILL");
+      await rm(directory, { force: true, recursive: true });
+    });
+
+    const [output] = await once(child.stdout, "data");
+    const npxPid = Number(output.toString().trim());
+    child.kill("SIGTERM");
+    const [code, signal] = await once(child, "exit");
+
+    assert.equal(code, 0);
+    assert.equal(signal, null);
+    assert.equal(await readFile(signalFile, "utf8"), "SIGTERM");
+    assert.equal(npxPid, child.pid);
+  },
+);
 
 test("npx installs the package selected by NPM_CONFIG_PACKAGE", async (t) => {
   const mcp = await readJson("plugins/superblocks-plugin/.mcp.json");
