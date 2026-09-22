@@ -8,14 +8,5 @@
   },
   "homepage": "https://www.superblocks.com",
   "skills": "./skills/",
-  "version": "2.0.157-cowork.4",
-  "userConfig": {
-    "server_url": {
-      "type": "string",
-      "title": "Superblocks server URL",
-      "description": "The URL of your Superblocks instance.",
-      "default": "https://app.superblocks.com",
-      "required": true
-    }
-  }
+  "version": "2.0.157-cowork.4"
 }

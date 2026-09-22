@@ -20,12 +20,10 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
     "serve",
     "--browser-login",
   ]);
-  assert.equal(server.env.SUPERBLOCKS_SERVER_URL, "${user_config.server_url}");
-  assert.equal(
-    manifest.userConfig.server_url.default,
-    "https://app.superblocks.com",
-  );
+  assert.equal("env" in server, false);
+  assert.equal("userConfig" in manifest, false);
   assert.match(setup, /Node\.js 24.*npm\s+10/is);
+  assert.match(setup, /https:\/\/app\.superblocks\.com/);
   assert.match(setup, /opens.*browser/i);
   assert.doesNotMatch(setup, /API key|superblocks login|config set domain/i);
 });

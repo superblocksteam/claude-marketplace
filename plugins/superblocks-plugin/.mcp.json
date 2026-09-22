@@ -16,10 +16,7 @@
         "mcp",
         "serve",
         "--browser-login"
-      ],
-      "env": {
-        "SUPERBLOCKS_SERVER_URL": "${user_config.server_url}"
-      }
+      ]
     }
   }
 }
