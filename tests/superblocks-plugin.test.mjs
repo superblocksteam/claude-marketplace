@@ -24,7 +24,10 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
     readJson(".claude-plugin/marketplace.json"),
     readJson("plugins/superblocks-plugin/.claude-plugin/plugin.json"),
     readJson("plugins/superblocks-plugin/.mcp.json"),
-    readFile("plugins/superblocks-plugin/skills/configure/SKILL.md", "utf8"),
+    readFile(
+      repoFile("plugins/superblocks-plugin/skills/configure/SKILL.md"),
+      "utf8",
+    ),
   ]);
   const server = mcp.mcpServers.superblocks;
 
