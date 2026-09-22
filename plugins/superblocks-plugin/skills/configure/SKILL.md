@@ -19,12 +19,13 @@ check, do not insert it: ask again, and leave the literal
 `YOUR_SUPERBLOCKS_HOST` in place for them to replace after opening a terminal on
 the computer running Claude Desktop.
 
-Read `NPM_CONFIG_PACKAGE` from the plugin's `.mcp.json` and replace every
-`SELECTED_SUPERBLOCKS_CLI_PACKAGE` below with its value. For a
-`${NPM_CONFIG_PACKAGE:-VALUE}` value, use `VALUE`. Accept only
+Read `SUPERBLOCKS_CLI_PACKAGE` from the plugin's `.mcp.json` and replace every
+`SELECTED_SUPERBLOCKS_CLI_PACKAGE` below with its value. Accept only
 `@superblocksteam/cli` with an optional exact version or tag containing letters,
-digits, dots, underscores, plus signs, or hyphens. Leave the placeholder in
-place and ask the user to fix `.mcp.json` if the value is invalid.
+digits, dots, underscores, plus signs, or hyphens, or a `file:` URL containing
+letters, digits, underscores, dots, slashes, colons, plus signs, or hyphens.
+Leave the placeholder in place and ask the user to fix `.mcp.json` if the value
+is invalid.
 
 On macOS or Linux, give them this one-line command:
 

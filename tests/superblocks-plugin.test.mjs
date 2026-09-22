@@ -38,15 +38,17 @@ test("Superblocks exposes the editable CLI package value", async () => {
     "${CLAUDE_PLUGIN_ROOT}/scripts/launch-mcp.mjs",
   ]);
   assert.equal(
-    server.env.NPM_CONFIG_PACKAGE,
-    "${NPM_CONFIG_PACKAGE:-@superblocksteam/cli@beta}",
+    server.env.SUPERBLOCKS_CLI_PACKAGE,
+    "@superblocksteam/cli@beta",
   );
+  assert.equal("NPM_CONFIG_PACKAGE" in server.env, false);
   assert.equal("SUPERBLOCKS_MCP_BROWSER_LOGIN" in server.env, false);
   assert.equal("SUPERBLOCKS_SERVER_URL" in server.env, false);
   assert.match(
     setup,
-    /NPM_CONFIG_PACKAGE[\s\S]*SELECTED_SUPERBLOCKS_CLI_PACKAGE/,
+    /SUPERBLOCKS_CLI_PACKAGE[\s\S]*SELECTED_SUPERBLOCKS_CLI_PACKAGE/,
   );
+  assert.match(setup, /file:/);
   assert.doesNotMatch(setup, /--package=@superblocksteam\/cli@beta/);
 });
 
@@ -77,7 +79,7 @@ setInterval(() => {}, 1_000);
     const child = spawn(process.execPath, [launcher], {
       env: {
         ...process.env,
-        NPM_CONFIG_PACKAGE: "@superblocksteam/cli@beta",
+        SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@beta",
         PATH: `${directory}:${process.env.PATH}`,
         TEST_SIGNAL_FILE: signalFile,
       },
@@ -87,7 +89,14 @@ setInterval(() => {}, 1_000);
       await rm(directory, { force: true, recursive: true });
     });
 
-    const [output] = await once(child.stdout, "data");
+    const [output] = await Promise.race([
+      once(child.stdout, "data", { signal: AbortSignal.timeout(5_000) }),
+      once(child, "exit").then(([code, signal]) => {
+        throw new Error(
+          `Launcher exited before npx started: code=${code} signal=${signal}`,
+        );
+      }),
+    ]);
     const npxPid = Number(output.toString().trim());
     child.kill("SIGTERM");
     const [code, signal] = await once(child, "exit");
@@ -99,10 +108,10 @@ setInterval(() => {}, 1_000);
   },
 );
 
-test("npx installs the package selected by NPM_CONFIG_PACKAGE", async (t) => {
+test("npx installs selected SUPERBLOCKS_CLI_PACKAGE", async (t) => {
   const mcp = await readJson("plugins/superblocks-plugin/.mcp.json");
   const server = mcp.mcpServers.superblocks;
-  const packageEnvName = "NPM_CONFIG_PACKAGE";
+  const packageEnvName = "SUPERBLOCKS_CLI_PACKAGE";
 
   const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-npx-"));
   t.after(() => rm(directory, { force: true, recursive: true }));
@@ -149,27 +158,52 @@ test("MCP launch fails closed without a valid package", async () => {
   );
   await assert.rejects(
     execFile(process.execPath, [launcher], {
-      env: { ...process.env, NPM_CONFIG_PACKAGE: "" },
+      env: { ...process.env, SUPERBLOCKS_CLI_PACKAGE: "" },
     }),
-    /NPM_CONFIG_PACKAGE must select the Superblocks CLI package/,
+    /SUPERBLOCKS_CLI_PACKAGE must select the Superblocks CLI package/,
   );
   await assert.rejects(
     execFile(process.execPath, [launcher], {
       env: {
         ...process.env,
         NPM_CONFIG_OFFLINE: "true",
-        NPM_CONFIG_PACKAGE: "superblocks",
+        SUPERBLOCKS_CLI_PACKAGE: "superblocks",
       },
     }),
-    /NPM_CONFIG_PACKAGE must select @superblocksteam\/cli/,
+    /SUPERBLOCKS_CLI_PACKAGE must select @superblocksteam\/cli/,
   );
   await assert.rejects(
     execFile(process.execPath, [launcher], {
       env: {
         ...process.env,
-        NPM_CONFIG_PACKAGE: "@superblocksteam/cli@^2.0.0",
+        SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@^2.0.0",
       },
     }),
-    /NPM_CONFIG_PACKAGE must use an exact version, tag, or file URL/,
+    /SUPERBLOCKS_CLI_PACKAGE must use an exact version, tag, or file URL/,
+  );
+});
+
+test("MCP launch explains the Node.js 24 requirement", async () => {
+  const launcher = pathToFileURL(
+    fileURLToPath(
+      repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
+    ),
+  ).href;
+  await assert.rejects(
+    execFile(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `process.execve = undefined; await import(${JSON.stringify(launcher)})`,
+      ],
+      {
+        env: {
+          ...process.env,
+          SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@beta",
+        },
+      },
+    ),
+    /Node\.js 24 or newer is required/,
   );
 });
