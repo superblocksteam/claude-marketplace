@@ -11,12 +11,12 @@
         "name": "Superblocks",
         "url": "https://www.superblocks.com"
       },
-      "description": "Build, import, and manage Superblocks applications from Claude. After installing, select Finish setup to authenticate.",
+      "description": "Build, import, and manage Superblocks applications from Claude. Browser sign-in opens automatically.",
       "displayName": "Superblocks",
       "homepage": "https://www.superblocks.com",
       "name": "superblocks",
       "source": "./plugins/superblocks-plugin",
-      "version": "2.0.157-cowork.3"
+      "version": "2.0.157-cowork.4"
     }
   ]
 }

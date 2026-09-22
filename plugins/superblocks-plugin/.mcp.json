@@ -14,8 +14,12 @@
         "--",
         "superblocks",
         "mcp",
-        "serve"
-      ]
+        "serve",
+        "--browser-login"
+      ],
+      "env": {
+        "SUPERBLOCKS_SERVER_URL": "https://app.superblocks.com"
+      }
     }
   }
 }
