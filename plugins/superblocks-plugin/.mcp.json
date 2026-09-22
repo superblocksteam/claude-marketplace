@@ -1,19 +1,9 @@
 {
   "mcpServers": {
     "superblocks": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "--yes",
-        "--prefer-online",
-        "--ignore-scripts",
-        "--no-audit",
-        "--no-fund",
-        "--registry=https://registry.npmjs.org/",
-        "--@superblocksteam:registry=https://registry.npmjs.org/",
-        "--",
-        "superblocks",
-        "mcp",
-        "serve"
+        "${CLAUDE_PLUGIN_ROOT}/scripts/launch-mcp.mjs"
       ],
       "env": {
         "NODE_DEBUG": "gateway",
