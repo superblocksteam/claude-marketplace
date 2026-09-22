@@ -18,7 +18,7 @@
         "--browser-login"
       ],
       "env": {
-        "SUPERBLOCKS_SERVER_URL": "https://app.superblocks.com"
+        "SUPERBLOCKS_SERVER_URL": "${user_config.server_url}"
       }
     }
   }
