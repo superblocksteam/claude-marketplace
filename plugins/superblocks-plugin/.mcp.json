@@ -10,14 +10,15 @@
         "--no-fund",
         "--registry=https://registry.npmjs.org/",
         "--@superblocksteam:registry=https://registry.npmjs.org/",
-        "--package=@superblocksteam/cli@beta",
         "--",
         "superblocks",
         "mcp",
         "serve"
       ],
       "env": {
-        "NODE_DEBUG": "gateway"
+        "NODE_DEBUG": "gateway",
+        "NPM_CONFIG_PACKAGE": "@superblocksteam/cli@beta",
+        "SUPERBLOCKS_SERVER_URL": "https://app.superblocks.com"
       }
     }
   }
