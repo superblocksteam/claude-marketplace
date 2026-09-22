@@ -8,10 +8,12 @@ if (!packageSpec) {
   process.exit(1);
 }
 const packageMatch = packageSpec.match(
-  /^@superblocksteam\/cli(?:@(.+))?$/,
+  /^@superblocksteam\/cli(?:-ephemeral)?(?:@(.+))?$/,
 );
 if (!packageMatch) {
-  console.error("SUPERBLOCKS_CLI_PACKAGE must select @superblocksteam/cli.");
+  console.error(
+    "SUPERBLOCKS_CLI_PACKAGE must select @superblocksteam/cli or @superblocksteam/cli-ephemeral.",
+  );
   process.exit(1);
 }
 const selector = packageMatch[1];

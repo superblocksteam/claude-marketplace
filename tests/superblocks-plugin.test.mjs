@@ -130,41 +130,39 @@ test("npx installs selected SUPERBLOCKS_CLI_PACKAGE", async (t) => {
 
   const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-npx-"));
   t.after(() => rm(directory, { force: true, recursive: true }));
-  const packageDirectory = join(directory, "package");
-  await mkdir(packageDirectory);
-  await writeFile(
-    join(packageDirectory, "package.json"),
-    JSON.stringify({
-      bin: { superblocks: "superblocks.js" },
-      name: "@superblocksteam/cli",
-      version: "1.0.0",
-    }),
-  );
-  const executable = join(packageDirectory, "superblocks.js");
-  await writeFile(
-    executable,
-    '#!/usr/bin/env node\nprocess.stdout.write("configured package\\n");\n',
-  );
-  await chmod(executable, 0o755);
-
   const launcher = fileURLToPath(
     repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
   );
-  const { stdout } = await execFile(
-    process.execPath,
-    [launcher],
-    {
+  for (const name of ["@superblocksteam/cli", "@superblocksteam/cli-ephemeral"]) {
+    const packageDirectory = join(directory, name.split("/").at(-1));
+    await mkdir(packageDirectory);
+    await writeFile(
+      join(packageDirectory, "package.json"),
+      JSON.stringify({
+        bin: { superblocks: "superblocks.js" },
+        name,
+        version: "1.0.0",
+      }),
+    );
+    const executable = join(packageDirectory, "superblocks.js");
+    await writeFile(
+      executable,
+      '#!/usr/bin/env node\nprocess.stdout.write("configured package\\n");\n',
+    );
+    await chmod(executable, 0o755);
+
+    const { stdout } = await execFile(process.execPath, [launcher], {
       cwd: directory,
       env: {
         ...process.env,
-        [packageEnvName]: `@superblocksteam/cli@${pathToFileURL(packageDirectory).href}`,
-        NPM_CONFIG_CACHE: join(directory, "cache"),
+        [packageEnvName]: `${name}@${pathToFileURL(packageDirectory).href}`,
+        NPM_CONFIG_CACHE: join(directory, `${name.split("/").at(-1)}-cache`),
         NPM_CONFIG_OFFLINE: "true",
         npm_config_package: "package-that-must-not-run",
       },
-    },
-  );
-  assert.equal(stdout, "configured package\n");
+    });
+    assert.equal(stdout, "configured package\n");
+  }
 });
 
 test("MCP launch fails closed without a valid package", async () => {

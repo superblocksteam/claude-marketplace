@@ -18,8 +18,9 @@ When the user asks to customize the plugin, edit the `env` object under
 settings and keep environment values as JSON strings.
 
 - Set `SUPERBLOCKS_CLI_PACKAGE` to an exact version or tag, such as
-  `@superblocksteam/cli@beta`, or a local `file:` URL. Keep the package name fixed
-  and do not use version ranges.
+  `@superblocksteam/cli@beta`, or a local `file:` URL. Use
+  `@superblocksteam/cli` or `@superblocksteam/cli-ephemeral` and do not use
+  version ranges.
 - Set `SUPERBLOCKS_SERVER_URL` to the Superblocks server origin. Use HTTPS with
   no credentials, path, query, or fragment. HTTP is allowed only for a loopback
   address such as `http://localhost:8080`.
