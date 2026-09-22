@@ -17,6 +17,9 @@ When the user asks to customize the plugin, edit the `env` object under
 `mcpServers.superblocks` in the plugin's `.mcp.json`. Preserve unrelated
 settings and keep environment values as JSON strings.
 
+- Set `NPM_CONFIG_PACKAGE` to an exact version or tag, such as
+  `@superblocksteam/cli@beta`, to select the CLI release. Keep the package name
+  fixed and do not use version ranges.
 - Set `SUPERBLOCKS_SERVER_URL` to the Superblocks server origin. Use HTTPS with
   no credentials, path, query, or fragment. HTTP is allowed only for a loopback
   address such as `http://localhost:8080`.

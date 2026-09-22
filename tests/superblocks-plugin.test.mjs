@@ -53,6 +53,7 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
     setup,
     /Customize MCP settings[\s\S]*SUPERBLOCKS_SERVER_URL[\s\S]*SUPERBLOCKS_MCP_BROWSER_LOGIN/,
   );
+  assert.match(setup, /NPM_CONFIG_PACKAGE[\s\S]*exact version or tag/);
   assert.match(setup, /SUPERBLOCKS_MCP_BROWSER_LOGIN[\s\S]*"false"/);
   assert.match(
     setup,
