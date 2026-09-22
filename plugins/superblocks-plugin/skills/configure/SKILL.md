@@ -22,7 +22,8 @@ settings and keep environment values as JSON strings.
   address such as `http://localhost:8080`.
 - Keep `SUPERBLOCKS_MCP_BROWSER_LOGIN` set to `"true"` to open browser sign-in
   automatically when authentication is needed. Set it to `"false"` to prevent
-  an automatic browser launch and use an existing CLI session instead.
+  an automatic browser launch. When it is `"false"`, remove
+  `SUPERBLOCKS_SERVER_URL` so the server URL comes from the existing CLI session.
 
 After changing either value, ask the user to start a new Cowork task so Claude
 restarts the MCP server with the updated environment.
