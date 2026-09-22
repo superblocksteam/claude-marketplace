@@ -28,6 +28,9 @@ if (
   process.exit(1);
 }
 
+const scopedRegistry = packageSpec.startsWith("@superblocksteam/cli-ephemeral")
+  ? "https://npm.pkg.github.com/"
+  : "https://registry.npmjs.org/";
 const npxArgs = [
   "--yes",
   "--prefer-online",
@@ -35,7 +38,7 @@ const npxArgs = [
   "--no-audit",
   "--no-fund",
   "--registry=https://registry.npmjs.org/",
-  "--@superblocksteam:registry=https://registry.npmjs.org/",
+  `--@superblocksteam:registry=${scopedRegistry}`,
   `--package=${packageSpec}`,
   "--",
   "superblocks",

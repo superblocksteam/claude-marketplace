@@ -165,6 +165,31 @@ test("npx installs selected SUPERBLOCKS_CLI_PACKAGE", async (t) => {
   }
 });
 
+test("launcher selects the package registry", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-registry-"));
+  t.after(() => rm(directory, { force: true, recursive: true }));
+  const npx = join(directory, "npx");
+  await writeFile(npx, '#!/usr/bin/env node\nconsole.log(JSON.stringify(process.argv.slice(2)));\n');
+  await chmod(npx, 0o755);
+  const launcher = fileURLToPath(
+    repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
+  );
+
+  for (const [name, registry] of [
+    ["cli", "https://registry.npmjs.org/"],
+    ["cli-ephemeral", "https://npm.pkg.github.com/"],
+  ]) {
+    const { stdout } = await execFile(process.execPath, [launcher], {
+      env: {
+        ...process.env,
+        PATH: `${directory}:${process.env.PATH}`,
+        SUPERBLOCKS_CLI_PACKAGE: `@superblocksteam/${name}@2.0.0`,
+      },
+    });
+    assert.ok(JSON.parse(stdout).includes(`--@superblocksteam:registry=${registry}`));
+  }
+});
+
 test("MCP launch fails closed without a valid package", async () => {
   const launcher = fileURLToPath(
     repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),

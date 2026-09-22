@@ -20,7 +20,8 @@ settings and keep environment values as JSON strings.
 - Set `SUPERBLOCKS_CLI_PACKAGE` to an exact version or tag, such as
   `@superblocksteam/cli@beta`, or a local `file:` URL. Use
   `@superblocksteam/cli` or `@superblocksteam/cli-ephemeral` and do not use
-  version ranges.
+  version ranges. The ephemeral package is fetched from GitHub Packages and
+  requires npm authentication for `npm.pkg.github.com`.
 - Set `SUPERBLOCKS_SERVER_URL` to the Superblocks server origin. Use HTTPS with
   no credentials, path, query, or fragment. HTTP is allowed only for a loopback
   address such as `http://localhost:8080`.
