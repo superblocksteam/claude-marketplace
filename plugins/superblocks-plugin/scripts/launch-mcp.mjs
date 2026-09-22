@@ -5,9 +5,13 @@ if (!packageSpec) {
   console.error("NPM_CONFIG_PACKAGE must select the Superblocks CLI package.");
   process.exit(1);
 }
+if (/[\s"'`$&|<>^()%!;]/.test(packageSpec)) {
+  console.error("NPM_CONFIG_PACKAGE contains unsupported characters.");
+  process.exit(1);
+}
 
 const child = spawn(
-  process.platform === "win32" ? "npx.cmd" : "npx",
+  "npx",
   [
     "--yes",
     "--prefer-online",
@@ -28,7 +32,9 @@ const child = spawn(
         ([name]) => name.toUpperCase() !== "NPM_CONFIG_PACKAGE",
       ),
     ),
+    shell: process.platform === "win32",
     stdio: "inherit",
+    windowsHide: true,
   },
 );
 
