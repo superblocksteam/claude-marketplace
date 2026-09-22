@@ -17,8 +17,7 @@
       ],
       "env": {
         "NODE_DEBUG": "gateway",
-        "NPM_CONFIG_PACKAGE": "@superblocksteam/cli@beta",
-        "SUPERBLOCKS_SERVER_URL": "https://app.superblocks.com"
+        "NPM_CONFIG_PACKAGE": "@superblocksteam/cli@beta"
       }
     }
   }
