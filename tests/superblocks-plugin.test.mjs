@@ -118,4 +118,14 @@ test("MCP launch fails closed without a configured package", async () => {
     }),
     /NPM_CONFIG_PACKAGE must select the Superblocks CLI package/,
   );
+  await assert.rejects(
+    execFile(process.execPath, [launcher], {
+      env: {
+        ...process.env,
+        NPM_CONFIG_OFFLINE: "true",
+        NPM_CONFIG_PACKAGE: "package & command",
+      },
+    }),
+    /NPM_CONFIG_PACKAGE contains unsupported characters/,
+  );
 });
