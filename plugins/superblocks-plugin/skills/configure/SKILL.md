@@ -17,9 +17,9 @@ When the user asks to customize the plugin, edit the `env` object under
 `mcpServers.superblocks` in the plugin's `.mcp.json`. Preserve unrelated
 settings and keep environment values as JSON strings.
 
-- Set `NPM_CONFIG_PACKAGE` to an exact version or tag, such as
-  `@superblocksteam/cli@beta`, to select the CLI release. Keep the package name
-  fixed and do not use version ranges.
+- Set `SUPERBLOCKS_CLI_PACKAGE` to an exact version or tag, such as
+  `@superblocksteam/cli@beta`, or a local `file:` URL. Keep the package name fixed
+  and do not use version ranges.
 - Set `SUPERBLOCKS_SERVER_URL` to the Superblocks server origin. Use HTTPS with
   no credentials, path, query, or fragment. HTTP is allowed only for a loopback
   address such as `http://localhost:8080`.
@@ -28,7 +28,7 @@ settings and keep environment values as JSON strings.
   an automatic browser launch. When it is `"false"`, remove
   `SUPERBLOCKS_SERVER_URL` so the server URL comes from the existing CLI session.
 
-After changing either value, ask the user to start a new Cowork task so Claude
+After changing any value, ask the user to start a new Cowork task so Claude
 restarts the MCP server with the updated environment.
 
 Ask the user to finish signing in in the browser, then return to Cowork. If the

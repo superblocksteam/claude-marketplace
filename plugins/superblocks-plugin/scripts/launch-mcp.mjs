@@ -1,15 +1,17 @@
 import { spawnSync } from "node:child_process";
 
-const packageSpec = process.env.NPM_CONFIG_PACKAGE?.trim();
+const packageSpec = process.env.SUPERBLOCKS_CLI_PACKAGE?.trim();
 if (!packageSpec) {
-  console.error("NPM_CONFIG_PACKAGE must select the Superblocks CLI package.");
+  console.error(
+    "SUPERBLOCKS_CLI_PACKAGE must select the Superblocks CLI package.",
+  );
   process.exit(1);
 }
 const packageMatch = packageSpec.match(
   /^@superblocksteam\/cli(?:@(.+))?$/,
 );
 if (!packageMatch) {
-  console.error("NPM_CONFIG_PACKAGE must select @superblocksteam/cli.");
+  console.error("SUPERBLOCKS_CLI_PACKAGE must select @superblocksteam/cli.");
   process.exit(1);
 }
 const selector = packageMatch[1];
@@ -19,7 +21,7 @@ if (
   !/^file:[A-Za-z0-9_./:+-]+$/.test(selector)
 ) {
   console.error(
-    "NPM_CONFIG_PACKAGE must use an exact version, tag, or file URL.",
+    "SUPERBLOCKS_CLI_PACKAGE must use an exact version, tag, or file URL.",
   );
   process.exit(1);
 }
@@ -40,11 +42,18 @@ const npxArgs = [
 ];
 const env = Object.fromEntries(
   Object.entries(process.env).filter(
-    ([name]) => name.toUpperCase() !== "NPM_CONFIG_PACKAGE",
+    ([name]) =>
+      !["NPM_CONFIG_PACKAGE", "SUPERBLOCKS_CLI_PACKAGE"].includes(
+        name.toUpperCase(),
+      ),
   ),
 );
 
 if (process.platform !== "win32") {
+  if (typeof process.execve !== "function") {
+    console.error("Node.js 24 or newer is required to run Superblocks MCP.");
+    process.exit(1);
+  }
   try {
     process.execve("/usr/bin/env", ["env", "npx", ...npxArgs], env);
   } catch (error) {
