@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import { constants } from "node:os";
+import { spawnSync } from "node:child_process";
 
 const packageSpec = process.env.NPM_CONFIG_PACKAGE?.trim();
 if (!packageSpec) {
@@ -39,58 +38,31 @@ const npxArgs = [
   "mcp",
   "serve",
 ];
-const windows = process.platform === "win32";
-const child = spawn(
-  windows ? (process.env.ComSpec ?? "cmd.exe") : "npx",
-  windows ? ["/D", "/S", "/C", "npx.cmd", ...npxArgs] : npxArgs,
-  {
-    detached: !windows,
-    env: Object.fromEntries(
-      Object.entries(process.env).filter(
-        ([name]) => name.toUpperCase() !== "NPM_CONFIG_PACKAGE",
-      ),
-    ),
-    stdio: "inherit",
-    windowsHide: true,
-  },
+const env = Object.fromEntries(
+  Object.entries(process.env).filter(
+    ([name]) => name.toUpperCase() !== "NPM_CONFIG_PACKAGE",
+  ),
 );
 
-const signals = [
-  ...(windows ? [] : ["SIGHUP"]),
-  "SIGINT",
-  "SIGTERM",
-];
-const forwardSignal = (signal) => {
-  if (child.pid === undefined) return;
-  if (windows) {
-    spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    return;
-  }
+if (process.platform !== "win32") {
   try {
-    process.kill(-child.pid, signal);
+    process.execve("/usr/bin/env", ["env", "npx", ...npxArgs], env);
   } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ESRCH"))
-      throw error;
+    console.error(`Could not start the Superblocks CLI: ${error.message}`);
+    process.exit(1);
   }
-};
-const signalHandlers = Object.fromEntries(
-  signals.map((signal) => [signal, () => forwardSignal(signal)]),
-);
-for (const signal of signals) {
-  process.on(signal, signalHandlers[signal]);
 }
-child.once("error", (error) => {
-  console.error(`Could not start the Superblocks CLI: ${error.message}`);
+
+const result = spawnSync(
+  process.env.ComSpec ?? "cmd.exe",
+  ["/D", "/S", "/C", "npx.cmd", ...npxArgs],
+  { env, stdio: "inherit", windowsHide: true },
+);
+if (result.error) {
+  console.error(`Could not start the Superblocks CLI: ${result.error.message}`);
   process.exitCode = 1;
-});
-child.once("exit", (code, signal) => {
-  for (const handledSignal of signals) {
-    process.off(handledSignal, signalHandlers[handledSignal]);
-  }
-  if (signal) console.error(`Superblocks CLI terminated by ${signal}.`);
-  process.exitCode =
-    code ?? (signal ? 128 + (constants.signals[signal] ?? 0) : 1);
-});
+} else {
+  if (result.signal)
+    console.error(`Superblocks CLI terminated by ${result.signal}.`);
+  process.exitCode = result.status ?? 1;
+}
