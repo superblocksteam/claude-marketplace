@@ -31,7 +31,7 @@ as `http://localhost:8080`. The tool saves the server with the browser login
 outside the plugin and applies it to the current Cowork task. If sign-in opens,
 ask the user to finish it in the browser and return to Cowork. Do not edit the
 plugin's `.mcp.json` to change the server.
-For a custom HTTPS server, `set_server` requests its own confirmation form
+For a custom HTTPS or loopback server, `set_server` requests its own confirmation form
 showing the exact origin before sign-in. If the host cannot show that form,
 the tool will not switch servers; a chat reply cannot replace this confirmation.
 Report `set_server`'s sign-in status from its result. A successful `whoami`
