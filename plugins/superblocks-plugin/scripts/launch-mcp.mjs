@@ -8,10 +8,12 @@ if (!packageSpec) {
   process.exit(1);
 }
 const packageMatch = packageSpec.match(
-  /^@superblocksteam\/cli(?:@(.+))?$/,
+  /^@superblocksteam\/cli(?:-ephemeral)?(?:@(.+))?$/,
 );
 if (!packageMatch) {
-  console.error("SUPERBLOCKS_CLI_PACKAGE must select @superblocksteam/cli.");
+  console.error(
+    "SUPERBLOCKS_CLI_PACKAGE must select @superblocksteam/cli or @superblocksteam/cli-ephemeral.",
+  );
   process.exit(1);
 }
 const selector = packageMatch[1];
@@ -26,6 +28,36 @@ if (
   process.exit(1);
 }
 
+const serverUrl = process.env.SUPERBLOCKS_SERVER_URL;
+if (serverUrl) {
+  let url;
+  try {
+    url = new URL(serverUrl);
+  } catch {
+    console.error("SUPERBLOCKS_SERVER_URL must be a Superblocks server origin.");
+    process.exit(1);
+  }
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (
+    (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    console.error("SUPERBLOCKS_SERVER_URL must be an HTTPS origin (HTTP only on loopback).");
+    process.exit(1);
+  }
+}
+if (process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN === "false" && serverUrl) {
+  console.error("Remove SUPERBLOCKS_SERVER_URL when SUPERBLOCKS_MCP_BROWSER_LOGIN is false.");
+  process.exit(1);
+}
+
+const scopedRegistry = packageSpec.startsWith("@superblocksteam/cli-ephemeral")
+  ? "https://npm.pkg.github.com/"
+  : "https://registry.npmjs.org/";
 const npxArgs = [
   "--yes",
   "--prefer-online",
@@ -33,7 +65,7 @@ const npxArgs = [
   "--no-audit",
   "--no-fund",
   "--registry=https://registry.npmjs.org/",
-  "--@superblocksteam:registry=https://registry.npmjs.org/",
+  `--@superblocksteam:registry=${scopedRegistry}`,
   `--package=${packageSpec}`,
   "--",
   "superblocks",
@@ -49,24 +81,24 @@ const env = Object.fromEntries(
   ),
 );
 
-if (process.platform !== "win32") {
-  if (typeof process.execve !== "function") {
-    console.error("Node.js 24 or newer is required to run Superblocks MCP.");
-    process.exit(1);
-  }
+if (Number(process.versions.node.split(".")[0]) < 24) {
+  console.error("Node.js 24 or newer is required to run Superblocks MCP.");
+  process.exit(1);
+}
+if (process.platform !== "win32" && typeof process.execve === "function") {
   try {
     process.execve("/usr/bin/env", ["env", "npx", ...npxArgs], env);
-  } catch (error) {
-    console.error(`Could not start the Superblocks CLI: ${error.message}`);
-    process.exit(1);
-  }
+  } catch {}
 }
 
-const result = spawnSync(
-  process.env.ComSpec ?? "cmd.exe",
-  ["/D", "/S", "/C", "npx.cmd", ...npxArgs],
-  { env, stdio: "inherit", windowsHide: true },
-);
+const result =
+  process.platform === "win32"
+    ? spawnSync(
+        process.env.ComSpec ?? "cmd.exe",
+        ["/D", "/S", "/C", "npx.cmd", ...npxArgs],
+        { env, stdio: "inherit", windowsHide: true },
+      )
+    : spawnSync("npx", npxArgs, { env, stdio: "inherit" });
 if (result.error) {
   console.error(`Could not start the Superblocks CLI: ${result.error.message}`);
   process.exitCode = 1;
