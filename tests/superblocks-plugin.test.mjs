@@ -49,6 +49,8 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   assert.match(setup, /Is https:\/\/app\.superblocks\.com the correct\s+server\?/i);
   assert.match(setup, /yes[\s\S]*free.text option for another\s+server URL/i);
   assert.match(setup, /set_server[\s\S]*current Cowork task/i);
+  assert.match(setup, /custom HTTPS server[\s\S]*confirmation form/i);
+  assert.match(setup, /set_server.*sign-in status[\s\S]*whoami/i);
   assert.match(setup, /opens.*browser/i);
   assert.match(setup, /call.*Login.*before.*first account-dependent tool/i);
   assert.doesNotMatch(setup, /first account-dependent (tool )?call.*opens browser sign-in/i);
