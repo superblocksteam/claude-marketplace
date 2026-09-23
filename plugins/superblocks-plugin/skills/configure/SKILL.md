@@ -9,11 +9,13 @@ Confirm that the computer running Claude Desktop has Node.js 24 or newer and npm
 10 or newer.
 
 The plugin defaults to `https://app.superblocks.com`. It does not open a browser
-at startup. The first account-dependent tool call opens browser sign-in when no
-session is saved. No terminal or API-key setup is required.
+at startup. Call **Login** before the first account-dependent tool when no
+session is saved. Account-dependent tools never open browser sign-in on their
+own. No terminal or API-key setup is required.
 
-If a tool reports `MCP browser login changed`, explicitly call **Login**. It
-updates the current task; then retry the user's original tool call. Also call
+If a tool reports `MCP browser login required` or `MCP browser login changed`,
+explicitly call **Login**. It updates the current task; then retry the user's
+original tool call. Also call
 **Login** when the user asks to sign in or switch accounts. Do not ask them to
 restart Claude for a changed login.
 
@@ -38,7 +40,7 @@ version ranges. The ephemeral package is fetched from GitHub Packages and
 requires npm authentication for `npm.pkg.github.com`. This plugin file may be
 replaced by an update; start a new Cowork task after changing the package.
 
-After a tool or **Login** opens the browser, ask the user to finish signing in
+After **Login** or `set_server` opens the browser, ask the user to finish signing in
 and return to Cowork. If the browser does not open, check the runtime versions,
 the server URL, and the MCP launch error shown by Claude. Retry **Login** only
 after the reported problem is corrected.

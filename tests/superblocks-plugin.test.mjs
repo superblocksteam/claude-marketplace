@@ -50,7 +50,8 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   assert.match(setup, /yes[\s\S]*free.text option for another\s+server URL/i);
   assert.match(setup, /set_server[\s\S]*current Cowork task/i);
   assert.match(setup, /opens.*browser/i);
-  assert.match(setup, /first account-dependent (tool )?call.*opens browser sign-in/i);
+  assert.match(setup, /call.*Login.*before.*first account-dependent tool/i);
+  assert.doesNotMatch(setup, /first account-dependent (tool )?call.*opens browser sign-in/i);
   assert.match(setup, /MCP browser login changed[\s\S]*call.*Login[\s\S]*current task/i);
   assert.doesNotMatch(setup, /Restart (your )?MCP host/i);
   assert.match(setup, /Customize MCP settings[\s\S]*set_server/);
