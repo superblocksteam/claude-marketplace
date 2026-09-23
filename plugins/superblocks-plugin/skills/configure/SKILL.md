@@ -8,8 +8,14 @@ description: Configure browser sign-in and MCP settings for the Superblocks plug
 Confirm that the computer running Claude Desktop has Node.js 24 or newer and npm
 10 or newer.
 
-The plugin connects to `https://app.superblocks.com` and opens browser sign-in
-automatically. No terminal or API-key setup is required.
+The plugin connects to `https://app.superblocks.com`. It does not open a browser
+at startup. The first account-dependent tool call opens browser sign-in when no
+session is saved. No terminal or API-key setup is required for browser sign-in.
+
+If a tool reports `MCP browser login changed`, explicitly call **Login**. It
+updates the current task; then retry the user's original tool call. Also call
+**Login** when the user asks to sign in or switch accounts. Do not ask them to
+restart Claude for a changed login.
 
 ## Customize MCP settings
 
@@ -26,13 +32,21 @@ settings and keep environment values as JSON strings.
   no credentials, path, query, or fragment. HTTP is allowed only for a loopback
   address such as `http://localhost:8080`.
 - Keep `SUPERBLOCKS_MCP_BROWSER_LOGIN` set to `"true"` to open browser sign-in
-  automatically when authentication is needed. Set it to `"false"` to prevent
-  an automatic browser launch. When it is `"false"`, remove
+  on the first account-dependent call if no session is saved. Set it to
+  `"false"` to prevent browser sign-in. When it is `"false"`, remove
   `SUPERBLOCKS_SERVER_URL` so the server URL comes from the existing CLI session.
+  This manual mode requires a CLI session created on the same computer with
+  `superblocks login`. For the default package, run
+  `npx --yes --package=@superblocksteam/cli@beta -- superblocks login` in a
+  terminal on that computer. Use the configured CLI package if it differs.
+  For a non-default host, run `superblocks config set domain <hostname>` with
+  that package before running the CLI login command.
+  The CLI asks for credentials privately in the terminal.
 
 After changing any value, ask the user to start a new Cowork task so Claude
 restarts the MCP server with the updated environment.
 
-Ask the user to finish signing in in the browser, then return to Cowork. If the
-browser did not open, verify the runtime versions, then ask them to reconnect
-the plugin. If it still fails, ask for the MCP launch error shown by Claude.
+After a tool or **Login** opens the browser, ask the user to finish signing in
+and return to Cowork. If the browser does not open, check the runtime versions,
+the server URL, and the MCP launch error shown by Claude. Retry **Login** only
+after the reported problem is corrected.

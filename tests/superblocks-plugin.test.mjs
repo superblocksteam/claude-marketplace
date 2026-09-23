@@ -51,6 +51,9 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   assert.match(setup, /Node\.js 24.*npm\s+10/is);
   assert.match(setup, /https:\/\/app\.superblocks\.com/);
   assert.match(setup, /opens.*browser/i);
+  assert.match(setup, /first account-dependent (tool )?call.*opens browser sign-in/i);
+  assert.match(setup, /MCP browser login changed[\s\S]*call.*Login[\s\S]*current task/i);
+  assert.doesNotMatch(setup, /Restart (your )?MCP host/i);
   assert.match(
     setup,
     /Customize MCP settings[\s\S]*SUPERBLOCKS_SERVER_URL[\s\S]*SUPERBLOCKS_MCP_BROWSER_LOGIN/,
@@ -64,7 +67,9 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
     setup,
     /"false"[\s\S]*remove\s+`SUPERBLOCKS_SERVER_URL`[\s\S]*existing CLI session/,
   );
-  assert.doesNotMatch(setup, /API key|superblocks login|config set domain/i);
+  assert.match(setup, /manual mode[\s\S]*`superblocks login`/i);
+  assert.match(setup, /non-default host[\s\S]*config set domain/i);
+  assert.doesNotMatch(setup, /paste.*API key into Claude/i);
 });
 
 test(
@@ -165,7 +170,7 @@ test("npx installs selected SUPERBLOCKS_CLI_PACKAGE", async (t) => {
   }
 });
 
-test("launcher selects the package registry", async (t) => {
+test("launcher selects the package registry", { skip: process.platform === "win32" }, async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-registry-"));
   t.after(() => rm(directory, { force: true, recursive: true }));
   const npx = join(directory, "npx");
@@ -189,6 +194,40 @@ test("launcher selects the package registry", async (t) => {
     assert.ok(JSON.parse(stdout).includes(`--@superblocksteam:registry=${registry}`));
   }
 });
+
+test(
+  "MCP launch rejects invalid server settings before starting npx",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-env-"));
+    t.after(() => rm(directory, { force: true, recursive: true }));
+    const npx = join(directory, "npx");
+    await writeFile(npx, '#!/usr/bin/env node\nconsole.log("npx started");\n');
+    await chmod(npx, 0o755);
+    const launcher = fileURLToPath(
+      repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
+    );
+    for (const settings of [
+      { SUPERBLOCKS_SERVER_URL: "https://app.superblocks.com/path" },
+      {
+        SUPERBLOCKS_MCP_BROWSER_LOGIN: "false",
+        SUPERBLOCKS_SERVER_URL: "https://app.superblocks.com",
+      },
+    ]) {
+      await assert.rejects(
+        execFile(process.execPath, [launcher], {
+          env: {
+            ...process.env,
+            PATH: `${directory}:${process.env.PATH}`,
+            SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@beta",
+            ...settings,
+          },
+        }),
+        /SUPERBLOCKS_SERVER_URL/,
+      );
+    }
+  },
+);
 
 test("MCP launch fails closed without a valid package", async () => {
   const launcher = fileURLToPath(
@@ -233,7 +272,7 @@ test("MCP launch explains the Node.js 24 requirement", async () => {
       [
         "--input-type=module",
         "--eval",
-        `process.execve = undefined; await import(${JSON.stringify(launcher)})`,
+        `Object.defineProperty(process.versions, "node", { value: "18.0.0" }); process.execve = undefined; await import(${JSON.stringify(launcher)})`,
       ],
       {
         env: {
@@ -245,3 +284,39 @@ test("MCP launch explains the Node.js 24 requirement", async () => {
     /Node\.js 24 or newer is required/,
   );
 });
+
+test(
+  "MCP launch falls back when execve is unavailable or fails",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-fallback-"));
+    t.after(() => rm(directory, { force: true, recursive: true }));
+    const npx = join(directory, "npx");
+    await writeFile(npx, '#!/usr/bin/env node\nconsole.log("fallback started");\n');
+    await chmod(npx, 0o755);
+    const launcher = pathToFileURL(
+      fileURLToPath(repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs")),
+    ).href;
+    for (const execve of [
+      "undefined",
+      "() => { throw new Error('execve blocked') }",
+    ]) {
+      const { stdout } = await execFile(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          `process.execve = ${execve}; await import(${JSON.stringify(launcher)})`,
+        ],
+        {
+          env: {
+            ...process.env,
+            PATH: `${directory}:${process.env.PATH}`,
+            SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@beta",
+          },
+        },
+      );
+      assert.equal(stdout.trim(), "fallback started");
+    }
+  },
+);
