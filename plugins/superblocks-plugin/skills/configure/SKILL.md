@@ -13,11 +13,11 @@ at startup. Call **Login** before the first account-dependent tool when no
 session is saved. Account-dependent tools never open browser sign-in on their
 own. No terminal or API-key setup is required.
 
-If a tool reports `MCP browser login required` or `MCP browser login changed`,
-explicitly call **Login**. It updates the current task; then retry the user's
-original tool call. Also call
-**Login** when the user asks to sign in or switch accounts. Do not ask them to
-restart Claude for a changed login.
+If a tool reports `MCP browser login required` or
+`Saved Superblocks login changed outside this task`, explicitly call **Login**. It updates the current
+task; then retry the user's original tool call. Also call **Login** when the
+user asks to sign in or switch accounts. Do not ask them to restart Claude for
+a saved login changed outside this task.
 
 ## Customize MCP settings
 
