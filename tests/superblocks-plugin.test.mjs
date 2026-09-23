@@ -38,10 +38,7 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
     "${CLAUDE_PLUGIN_ROOT}/scripts/launch-mcp.mjs",
   ]);
   assert.equal(server.env.SUPERBLOCKS_MCP_BROWSER_LOGIN, "true");
-  assert.equal(
-    server.env.SUPERBLOCKS_SERVER_URL,
-    "https://app.superblocks.com",
-  );
+  assert.equal("SUPERBLOCKS_SERVER_URL" in server.env, false);
   assert.equal(
     server.env.SUPERBLOCKS_CLI_PACKAGE,
     "@superblocksteam/cli@beta",
@@ -49,27 +46,19 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   assert.equal("NPM_CONFIG_PACKAGE" in server.env, false);
   assert.equal("userConfig" in manifest, false);
   assert.match(setup, /Node\.js 24.*npm\s+10/is);
-  assert.match(setup, /https:\/\/app\.superblocks\.com/);
+  assert.match(setup, /Is https:\/\/app\.superblocks\.com the correct\s+server\?/i);
+  assert.match(setup, /yes[\s\S]*free.text option for another\s+server URL/i);
+  assert.match(setup, /set_server[\s\S]*current Cowork task/i);
   assert.match(setup, /opens.*browser/i);
   assert.match(setup, /first account-dependent (tool )?call.*opens browser sign-in/i);
   assert.match(setup, /MCP browser login changed[\s\S]*call.*Login[\s\S]*current task/i);
   assert.doesNotMatch(setup, /Restart (your )?MCP host/i);
-  assert.match(
-    setup,
-    /Customize MCP settings[\s\S]*SUPERBLOCKS_SERVER_URL[\s\S]*SUPERBLOCKS_MCP_BROWSER_LOGIN/,
-  );
+  assert.match(setup, /Customize MCP settings[\s\S]*set_server/);
   assert.match(
     setup,
     /SUPERBLOCKS_CLI_PACKAGE[\s\S]*exact version or tag[\s\S]*file:/,
   );
-  assert.match(setup, /SUPERBLOCKS_MCP_BROWSER_LOGIN[\s\S]*"false"/);
-  assert.match(
-    setup,
-    /"false"[\s\S]*remove\s+`SUPERBLOCKS_SERVER_URL`[\s\S]*existing CLI session/,
-  );
-  assert.match(setup, /manual mode[\s\S]*`superblocks login`/i);
-  assert.match(setup, /non-default host[\s\S]*config set domain/i);
-  assert.doesNotMatch(setup, /paste.*API key into Claude/i);
+  assert.doesNotMatch(setup, /npx|superblocks login|config set domain/i);
 });
 
 test(

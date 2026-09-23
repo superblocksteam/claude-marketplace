@@ -8,8 +8,7 @@
       "env": {
         "NODE_DEBUG": "gateway",
         "SUPERBLOCKS_CLI_PACKAGE": "@superblocksteam/cli@beta",
-        "SUPERBLOCKS_MCP_BROWSER_LOGIN": "true",
-        "SUPERBLOCKS_SERVER_URL": "https://app.superblocks.com"
+        "SUPERBLOCKS_MCP_BROWSER_LOGIN": "true"
       }
     }
   }
