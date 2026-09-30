@@ -41,8 +41,9 @@ For advanced package testing, edit `SUPERBLOCKS_CLI_PACKAGE` in the plugin's
 `.mcp.json`. Accept an exact version or tag, such as
 `@superblocksteam/cli@beta`, or a local `file:` URL. Use
 `@superblocksteam/cli` or `@superblocksteam/cli-ephemeral` and do not use
-version ranges. The ephemeral package is fetched from GitHub Packages and
-requires npm authentication for `npm.pkg.github.com`. This plugin file may be
+version ranges. The ephemeral package and the `@superblocksteam/cli@master`
+tag are fetched from GitHub Packages and require npm authentication for
+`npm.pkg.github.com`. This plugin file may be
 replaced by an update; start a new Cowork task after changing the package.
 
 After **Login** or `set_server` opens the browser, ask the user to finish signing in

@@ -8,7 +8,7 @@ if (!packageSpec) {
   process.exit(1);
 }
 const packageMatch = packageSpec.match(
-  /^@superblocksteam\/cli(?:-ephemeral)?(?:@(.+))?$/,
+  /^@superblocksteam\/(cli(?:-ephemeral)?)(?:@(.+))?$/,
 );
 if (!packageMatch) {
   console.error(
@@ -16,7 +16,7 @@ if (!packageMatch) {
   );
   process.exit(1);
 }
-const selector = packageMatch[1];
+const [, packageName, selector] = packageMatch;
 if (
   selector &&
   !/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(selector) &&
@@ -55,7 +55,8 @@ if (process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN === "false" && serverUrl) {
   process.exit(1);
 }
 
-const scopedRegistry = packageSpec.startsWith("@superblocksteam/cli-ephemeral")
+const githubOnly = packageName === "cli-ephemeral" || selector === "master";
+const scopedRegistry = githubOnly
   ? "https://npm.pkg.github.com/"
   : "https://registry.npmjs.org/";
 const npxArgs = [

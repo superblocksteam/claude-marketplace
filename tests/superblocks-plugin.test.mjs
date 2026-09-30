@@ -172,18 +172,24 @@ test("launcher selects the package registry", { skip: process.platform === "win3
     repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
   );
 
-  for (const [name, registry] of [
-    ["cli", "https://registry.npmjs.org/"],
-    ["cli-ephemeral", "https://npm.pkg.github.com/"],
+  for (const [packageSpec, registry] of [
+    ["@superblocksteam/cli@2.0.0", "https://registry.npmjs.org/"],
+    ["@superblocksteam/cli@beta", "https://registry.npmjs.org/"],
+    ["@superblocksteam/cli", "https://registry.npmjs.org/"],
+    ["@superblocksteam/cli@master", "https://npm.pkg.github.com/"],
+    ["@superblocksteam/cli-ephemeral@2.0.0", "https://npm.pkg.github.com/"],
   ]) {
     const { stdout } = await execFile(process.execPath, [launcher], {
       env: {
         ...process.env,
         PATH: `${directory}:${process.env.PATH}`,
-        SUPERBLOCKS_CLI_PACKAGE: `@superblocksteam/${name}@2.0.0`,
+        SUPERBLOCKS_CLI_PACKAGE: packageSpec,
       },
     });
-    assert.ok(JSON.parse(stdout).includes(`--@superblocksteam:registry=${registry}`));
+    assert.ok(
+      JSON.parse(stdout).includes(`--@superblocksteam:registry=${registry}`),
+      `${packageSpec} should install from ${registry}`,
+    );
   }
 });
 
