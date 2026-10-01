@@ -4,19 +4,31 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const DEFAULT_CLI_PACKAGE = "@superblocksteam/cli@beta";
-const pinFile = join(homedir(), ".superblocks", "plugin.json");
+const NO_PIN_ERRORS = ["ENOENT", "ENOTDIR"];
+const TRUE_VALUES = ["true", "1", "yes", "y"];
+const FALSE_VALUES = ["false", "0", "no", "n"];
 
 function fail(message) {
   console.error(message);
   process.exit(1);
 }
 
+function pinFilePath() {
+  try {
+    return join(homedir(), ".superblocks", "plugin.json");
+  } catch {
+    return undefined;
+  }
+}
+
 function readPinnedPackage() {
+  const pinFile = pinFilePath();
+  if (!pinFile) return undefined;
   let contents;
   try {
     contents = readFileSync(pinFile, "utf8");
   } catch (error) {
-    if (error.code === "ENOENT") return undefined;
+    if (NO_PIN_ERRORS.includes(error.code)) return undefined;
     fail(`Could not read ${pinFile}: ${error.message}`);
   }
   let pin;
@@ -39,8 +51,15 @@ function selectPackage() {
   const fromEnv = process.env.SUPERBLOCKS_CLI_PACKAGE?.trim();
   if (fromEnv) return { source: "SUPERBLOCKS_CLI_PACKAGE", spec: fromEnv };
   return (
-    readPinnedPackage() ?? { source: "The default package", spec: DEFAULT_CLI_PACKAGE }
+    readPinnedPackage() ?? { source: "The plugin default", spec: DEFAULT_CLI_PACKAGE }
   );
+}
+
+function readBrowserLogin() {
+  const value = process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN?.trim().toLowerCase();
+  if (!value || TRUE_VALUES.includes(value)) return "true";
+  if (FALSE_VALUES.includes(value)) return "false";
+  fail("SUPERBLOCKS_MCP_BROWSER_LOGIN must be true or false.");
 }
 
 const { source: packageSource, spec: packageSpec } = selectPackage();
@@ -60,7 +79,7 @@ if (
 ) {
   fail(`${packageSource} must use an exact version, tag, or file URL.`);
 }
-const browserLogin = process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN ?? "true";
+const browserLogin = readBrowserLogin();
 
 const serverUrl = process.env.SUPERBLOCKS_SERVER_URL;
 if (serverUrl) {
@@ -119,6 +138,11 @@ const env = {
 if (Number(process.versions.node.split(".")[0]) < 24) {
   fail("Node.js 24 or newer is required to run Superblocks MCP.");
 }
+console.error(
+  `Superblocks MCP package: ${packageSpec} (source: ${packageSource}; registry: ${scopedRegistry}${
+    githubOnly ? ", requires npm authentication" : ""
+  }).`,
+);
 if (process.platform !== "win32" && typeof process.execve === "function") {
   try {
     process.execve("/usr/bin/env", ["env", "npx", ...npxArgs], env);
