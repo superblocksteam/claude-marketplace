@@ -47,8 +47,11 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   }
   assert.equal("userConfig" in manifest, false);
   assert.match(setup, /Node\.js 24.*npm\s+10/is);
-  assert.match(setup, /Is https:\/\/app\.superblocks\.com the correct\s+server\?/i);
-  assert.match(setup, /yes[\s\S]*free.text option for another\s+server URL/i);
+  assert.match(setup, /Which Superblocks server should the\s+plugin use\?/i);
+  assert.match(setup, /https:\/\/app\.superblocks\.com[\s\S]*free.text option for another\s+server URL/i);
+  assert.match(setup, /do not describe\s+`https:\/\/app\.superblocks\.com` as the current server/i);
+  assert.doesNotMatch(setup, /Is https:\/\/app\.superblocks\.com the correct/i);
+  assert.match(setup, /not a valid server origin[\s\S]*ignores it/i);
   assert.match(setup, /set_server[\s\S]*current Cowork task/i);
   assert.match(setup, /custom HTTPS or loopback server[\s\S]*confirmation form/i);
   assert.match(setup, /set_server.*sign-in status[\s\S]*whoami/i);
