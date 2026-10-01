@@ -37,13 +37,14 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   assert.deepEqual(server.args, [
     "${CLAUDE_PLUGIN_ROOT}/scripts/launch-mcp.mjs",
   ]);
-  assert.equal(server.env.SUPERBLOCKS_MCP_BROWSER_LOGIN, "true");
-  assert.equal("SUPERBLOCKS_SERVER_URL" in server.env, false);
-  assert.equal(
-    server.env.SUPERBLOCKS_CLI_PACKAGE,
-    "@superblocksteam/cli@beta",
-  );
-  assert.equal("NPM_CONFIG_PACKAGE" in server.env, false);
+  for (const name of [
+    "SUPERBLOCKS_CLI_PACKAGE",
+    "SUPERBLOCKS_MCP_BROWSER_LOGIN",
+    "SUPERBLOCKS_SERVER_URL",
+    "NPM_CONFIG_PACKAGE",
+  ]) {
+    assert.equal(name in server.env, false, `.mcp.json must not set ${name}`);
+  }
   assert.equal("userConfig" in manifest, false);
   assert.match(setup, /Node\.js 24.*npm\s+10/is);
   assert.match(setup, /Is https:\/\/app\.superblocks\.com the correct\s+server\?/i);
@@ -59,8 +60,11 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   assert.match(setup, /Customize MCP settings[\s\S]*set_server/);
   assert.match(
     setup,
-    /SUPERBLOCKS_CLI_PACKAGE[\s\S]*exact version or tag[\s\S]*file:/,
+    /~\/\.superblocks\/plugin\.json[\s\S]*cliPackage[\s\S]*exact version or tag[\s\S]*file:/,
   );
+  assert.match(setup, /survives plugin updates/i);
+  assert.doesNotMatch(setup, /@master|cli-ephemeral|npm\.pkg\.github\.com/);
+  assert.doesNotMatch(setup, /edit `SUPERBLOCKS_CLI_PACKAGE` in the plugin's/);
   assert.doesNotMatch(setup, /npx|`superblocks login`|config set domain/i);
 });
 
@@ -172,20 +176,182 @@ test("launcher selects the package registry", { skip: process.platform === "win3
     repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
   );
 
-  for (const [name, registry] of [
-    ["cli", "https://registry.npmjs.org/"],
-    ["cli-ephemeral", "https://npm.pkg.github.com/"],
+  for (const [packageSpec, registry] of [
+    ["@superblocksteam/cli@2.0.0", "https://registry.npmjs.org/"],
+    ["@superblocksteam/cli@beta", "https://registry.npmjs.org/"],
+    ["@superblocksteam/cli", "https://registry.npmjs.org/"],
+    ["@superblocksteam/cli@master", "https://npm.pkg.github.com/"],
+    ["@superblocksteam/cli-ephemeral@2.0.0", "https://npm.pkg.github.com/"],
   ]) {
     const { stdout } = await execFile(process.execPath, [launcher], {
       env: {
         ...process.env,
         PATH: `${directory}:${process.env.PATH}`,
-        SUPERBLOCKS_CLI_PACKAGE: `@superblocksteam/${name}@2.0.0`,
+        SUPERBLOCKS_CLI_PACKAGE: packageSpec,
       },
     });
-    assert.ok(JSON.parse(stdout).includes(`--@superblocksteam:registry=${registry}`));
+    assert.ok(
+      JSON.parse(stdout).includes(`--@superblocksteam:registry=${registry}`),
+      `${packageSpec} should install from ${registry}`,
+    );
   }
 });
+
+test(
+  "launcher defaults to beta with browser login and honors the user pin file",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-pin-"));
+    t.after(() => rm(directory, { force: true, recursive: true }));
+    const npx = join(directory, "npx");
+    await writeFile(
+      npx,
+      "#!/usr/bin/env node\nconsole.log(JSON.stringify({ args: process.argv.slice(2), browserLogin: process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN }));\n",
+    );
+    await chmod(npx, 0o755);
+    const home = join(directory, "home");
+    const pinFile = join(home, ".superblocks", "plugin.json");
+    await mkdir(join(home, ".superblocks"), { recursive: true });
+    const launcher = fileURLToPath(
+      repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
+    );
+    const launch = async (settings = {}) => {
+      const env = { ...process.env, HOME: home, PATH: `${directory}:${process.env.PATH}` };
+      delete env.SUPERBLOCKS_CLI_PACKAGE;
+      delete env.SUPERBLOCKS_MCP_BROWSER_LOGIN;
+      const { stdout, stderr } = await execFile(process.execPath, [launcher], {
+        env: { ...env, ...settings },
+      });
+      return { ...JSON.parse(stdout), stderr };
+    };
+    const installs = (launched, packageSpec) =>
+      launched.args.includes(`--package=${packageSpec}`);
+
+    const defaults = await launch();
+    assert.ok(installs(defaults, "@superblocksteam/cli@beta"));
+    assert.equal(defaults.browserLogin, "true");
+    assert.match(defaults.stderr, /@superblocksteam\/cli@beta.*default.*registry\.npmjs\.org/);
+    assert.ok(installs(await launch({ SUPERBLOCKS_CLI_PACKAGE: " " }), "@superblocksteam/cli@beta"));
+    assert.equal((await launch({ SUPERBLOCKS_MCP_BROWSER_LOGIN: "false" })).browserLogin, "false");
+
+    await writeFile(pinFile, JSON.stringify({ cliPackage: "@superblocksteam/cli@master" }));
+    const pinned = await launch();
+    assert.ok(installs(pinned, "@superblocksteam/cli@master"));
+    assert.ok(pinned.args.includes("--@superblocksteam:registry=https://npm.pkg.github.com/"));
+    assert.match(
+      pinned.stderr,
+      /@superblocksteam\/cli@master.*plugin\.json.*npm\.pkg\.github\.com.*npm authentication/,
+    );
+    assert.ok(
+      installs(
+        await launch({ SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@2.0.0" }),
+        "@superblocksteam/cli@2.0.0",
+      ),
+    );
+
+    await writeFile(pinFile, JSON.stringify({}));
+    assert.ok(installs(await launch(), "@superblocksteam/cli@beta"));
+
+    await rm(join(home, ".superblocks"), { force: true, recursive: true });
+    await writeFile(join(home, ".superblocks"), "not a directory");
+    assert.ok(installs(await launch(), "@superblocksteam/cli@beta"));
+    await rm(join(home, ".superblocks"), { force: true });
+    await mkdir(join(home, ".superblocks"));
+
+    for (const [contents, error] of [
+      ["{not json", /plugin\.json is not valid JSON/],
+      [JSON.stringify([]), /plugin\.json must contain a JSON object/],
+      [JSON.stringify({ cliPackage: 2 }), /cliPackage in .*plugin\.json must be a string/],
+      [
+        JSON.stringify({ cliPackage: "superblocks" }),
+        /cliPackage in .*plugin\.json must select @superblocksteam\/cli/,
+      ],
+    ]) {
+      await writeFile(pinFile, contents);
+      await assert.rejects(launch(), error);
+    }
+  },
+);
+
+test(
+  "launcher starts without a home directory",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-nohome-"));
+    t.after(() => rm(directory, { force: true, recursive: true }));
+    const npx = join(directory, "npx");
+    await writeFile(npx, "#!/usr/bin/env node\nconsole.log(JSON.stringify(process.argv.slice(2)));\n");
+    await chmod(npx, 0o755);
+    const launcher = pathToFileURL(
+      fileURLToPath(repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs")),
+    ).href;
+    const withoutHome = `import os from "node:os"; import { syncBuiltinESMExports } from "node:module"; os.homedir = () => { throw new Error("no home"); }; syncBuiltinESMExports(); await import(${JSON.stringify(launcher)})`;
+    for (const [settings, packageSpec] of [
+      [{}, "@superblocksteam/cli@beta"],
+      [{ SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@2.0.0" }, "@superblocksteam/cli@2.0.0"],
+    ]) {
+      const env = { ...process.env, PATH: `${directory}:${process.env.PATH}`, ...settings };
+      if (!settings.SUPERBLOCKS_CLI_PACKAGE) delete env.SUPERBLOCKS_CLI_PACKAGE;
+      const { stdout } = await execFile(
+        process.execPath,
+        ["--input-type=module", "--eval", withoutHome],
+        { env },
+      );
+      assert.ok(JSON.parse(stdout).includes(`--package=${packageSpec}`));
+    }
+  },
+);
+
+test(
+  "launcher normalizes SUPERBLOCKS_MCP_BROWSER_LOGIN like the CLI",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-login-"));
+    t.after(() => rm(directory, { force: true, recursive: true }));
+    const npx = join(directory, "npx");
+    await writeFile(
+      npx,
+      "#!/usr/bin/env node\nconsole.log(process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN);\n",
+    );
+    await chmod(npx, 0o755);
+    const launcher = fileURLToPath(
+      repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
+    );
+    const launch = (settings) =>
+      execFile(process.execPath, [launcher], {
+        env: {
+          ...process.env,
+          PATH: `${directory}:${process.env.PATH}`,
+          SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@beta",
+          ...settings,
+        },
+      });
+
+    for (const [value, forwarded] of [
+      ["1", "true"],
+      [" YES ", "true"],
+      ["0", "false"],
+      ["No", "false"],
+      ["", "true"],
+    ]) {
+      const { stdout } = await launch({ SUPERBLOCKS_MCP_BROWSER_LOGIN: value });
+      assert.equal(stdout.trim(), forwarded, `${JSON.stringify(value)} should forward ${forwarded}`);
+    }
+    await assert.rejects(
+      launch({ SUPERBLOCKS_MCP_BROWSER_LOGIN: "maybe" }),
+      /SUPERBLOCKS_MCP_BROWSER_LOGIN must be true or false/,
+    );
+    for (const value of ["0", "FALSE", "no"]) {
+      await assert.rejects(
+        launch({
+          SUPERBLOCKS_MCP_BROWSER_LOGIN: value,
+          SUPERBLOCKS_SERVER_URL: "https://app.superblocks.com",
+        }),
+        /Remove SUPERBLOCKS_SERVER_URL/,
+      );
+    }
+  },
+);
 
 test(
   "MCP launch rejects invalid server settings before starting npx",
@@ -224,12 +390,6 @@ test(
 test("MCP launch fails closed without a valid package", async () => {
   const launcher = fileURLToPath(
     repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
-  );
-  await assert.rejects(
-    execFile(process.execPath, [launcher], {
-      env: { ...process.env, SUPERBLOCKS_CLI_PACKAGE: "" },
-    }),
-    /SUPERBLOCKS_CLI_PACKAGE must select the Superblocks CLI package/,
   );
   await assert.rejects(
     execFile(process.execPath, [launcher], {

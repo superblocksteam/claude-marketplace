@@ -6,9 +6,7 @@
         "${CLAUDE_PLUGIN_ROOT}/scripts/launch-mcp.mjs"
       ],
       "env": {
-        "NODE_DEBUG": "gateway",
-        "SUPERBLOCKS_CLI_PACKAGE": "@superblocksteam/cli@beta",
-        "SUPERBLOCKS_MCP_BROWSER_LOGIN": "true"
+        "NODE_DEBUG": "gateway"
       }
     }
   }
