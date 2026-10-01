@@ -1,20 +1,56 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-const packageSpec = process.env.SUPERBLOCKS_CLI_PACKAGE?.trim();
-if (!packageSpec) {
-  console.error(
-    "SUPERBLOCKS_CLI_PACKAGE must select the Superblocks CLI package.",
-  );
+const DEFAULT_CLI_PACKAGE = "@superblocksteam/cli@beta";
+const pinFile = join(homedir(), ".superblocks", "plugin.json");
+
+function fail(message) {
+  console.error(message);
   process.exit(1);
 }
+
+function readPinnedPackage() {
+  let contents;
+  try {
+    contents = readFileSync(pinFile, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return undefined;
+    fail(`Could not read ${pinFile}: ${error.message}`);
+  }
+  let pin;
+  try {
+    pin = JSON.parse(contents);
+  } catch {
+    fail(`${pinFile} is not valid JSON.`);
+  }
+  if (typeof pin !== "object" || pin === null || Array.isArray(pin)) {
+    fail(`${pinFile} must contain a JSON object.`);
+  }
+  if (pin.cliPackage === undefined) return undefined;
+  if (typeof pin.cliPackage !== "string") {
+    fail(`cliPackage in ${pinFile} must be a string.`);
+  }
+  return { source: `cliPackage in ${pinFile}`, spec: pin.cliPackage.trim() };
+}
+
+function selectPackage() {
+  const fromEnv = process.env.SUPERBLOCKS_CLI_PACKAGE?.trim();
+  if (fromEnv) return { source: "SUPERBLOCKS_CLI_PACKAGE", spec: fromEnv };
+  return (
+    readPinnedPackage() ?? { source: "The default package", spec: DEFAULT_CLI_PACKAGE }
+  );
+}
+
+const { source: packageSource, spec: packageSpec } = selectPackage();
 const packageMatch = packageSpec.match(
   /^@superblocksteam\/(cli(?:-ephemeral)?)(?:@(.+))?$/,
 );
 if (!packageMatch) {
-  console.error(
-    "SUPERBLOCKS_CLI_PACKAGE must select @superblocksteam/cli or @superblocksteam/cli-ephemeral.",
+  fail(
+    `${packageSource} must select @superblocksteam/cli or @superblocksteam/cli-ephemeral.`,
   );
-  process.exit(1);
 }
 const [, packageName, selector] = packageMatch;
 if (
@@ -22,11 +58,9 @@ if (
   !/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(selector) &&
   !/^file:[A-Za-z0-9_./:+-]+$/.test(selector)
 ) {
-  console.error(
-    "SUPERBLOCKS_CLI_PACKAGE must use an exact version, tag, or file URL.",
-  );
-  process.exit(1);
+  fail(`${packageSource} must use an exact version, tag, or file URL.`);
 }
+const browserLogin = process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN ?? "true";
 
 const serverUrl = process.env.SUPERBLOCKS_SERVER_URL;
 if (serverUrl) {
@@ -34,8 +68,7 @@ if (serverUrl) {
   try {
     url = new URL(serverUrl);
   } catch {
-    console.error("SUPERBLOCKS_SERVER_URL must be a Superblocks server origin.");
-    process.exit(1);
+    fail("SUPERBLOCKS_SERVER_URL must be a Superblocks server origin.");
   }
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
   if (
@@ -46,13 +79,11 @@ if (serverUrl) {
     url.search ||
     url.hash
   ) {
-    console.error("SUPERBLOCKS_SERVER_URL must be an HTTPS origin (HTTP only on loopback).");
-    process.exit(1);
+    fail("SUPERBLOCKS_SERVER_URL must be an HTTPS origin (HTTP only on loopback).");
   }
 }
-if (process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN === "false" && serverUrl) {
-  console.error("Remove SUPERBLOCKS_SERVER_URL when SUPERBLOCKS_MCP_BROWSER_LOGIN is false.");
-  process.exit(1);
+if (browserLogin === "false" && serverUrl) {
+  fail("Remove SUPERBLOCKS_SERVER_URL when SUPERBLOCKS_MCP_BROWSER_LOGIN is false.");
 }
 
 const githubOnly = packageName === "cli-ephemeral" || selector === "master";
@@ -73,18 +104,20 @@ const npxArgs = [
   "mcp",
   "serve",
 ];
-const env = Object.fromEntries(
-  Object.entries(process.env).filter(
-    ([name]) =>
-      !["NPM_CONFIG_PACKAGE", "SUPERBLOCKS_CLI_PACKAGE"].includes(
-        name.toUpperCase(),
-      ),
+const env = {
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([name]) =>
+        !["NPM_CONFIG_PACKAGE", "SUPERBLOCKS_CLI_PACKAGE"].includes(
+          name.toUpperCase(),
+        ),
+    ),
   ),
-);
+  SUPERBLOCKS_MCP_BROWSER_LOGIN: browserLogin,
+};
 
 if (Number(process.versions.node.split(".")[0]) < 24) {
-  console.error("Node.js 24 or newer is required to run Superblocks MCP.");
-  process.exit(1);
+  fail("Node.js 24 or newer is required to run Superblocks MCP.");
 }
 if (process.platform !== "win32" && typeof process.execve === "function") {
   try {

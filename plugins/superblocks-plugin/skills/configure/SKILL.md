@@ -37,14 +37,19 @@ the tool will not switch servers; a chat reply cannot replace this confirmation.
 Report `set_server`'s sign-in status from its result. A successful `whoami`
 does not show whether browser sign-in happened during the server change.
 
-For advanced package testing, edit `SUPERBLOCKS_CLI_PACKAGE` in the plugin's
-`.mcp.json`. Accept an exact version or tag, such as
-`@superblocksteam/cli@beta`, or a local `file:` URL. Use
+The plugin runs `@superblocksteam/cli@beta` by default. For advanced package
+testing, pin another package in `~/.superblocks/plugin.json`, for example
+`{"cliPackage": "@superblocksteam/cli@master"}`.
+Accept an exact version or tag, such as `@superblocksteam/cli@beta`, or a
+local `file:` URL. Use
 `@superblocksteam/cli` or `@superblocksteam/cli-ephemeral` and do not use
 version ranges. The ephemeral package and the `@superblocksteam/cli@master`
 tag are fetched from GitHub Packages and require npm authentication for
-`npm.pkg.github.com`. This plugin file may be
-replaced by an update; start a new Cowork task after changing the package.
+`npm.pkg.github.com`. The pin lives outside the plugin, so it
+survives plugin updates; delete `cliPackage` to return to the default. A
+`SUPERBLOCKS_CLI_PACKAGE` environment variable overrides the pin when the host
+passes it through, which Claude Code started from a terminal does and Cowork
+does not. Start a new Cowork task after changing the package.
 
 After **Login** or `set_server` opens the browser, ask the user to finish signing in
 and return to Cowork. If the browser does not open, check the runtime versions,
