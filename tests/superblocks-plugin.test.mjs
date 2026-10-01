@@ -63,8 +63,9 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
     /~\/\.superblocks\/plugin\.json[\s\S]*cliPackage[\s\S]*exact version or tag[\s\S]*file:/,
   );
   assert.match(setup, /survives plugin updates/i);
-  assert.match(setup, /`serverUrl`[\s\S]*plugin\.json|plugin\.json[\s\S]*`serverUrl`/);
-  assert.match(setup, /While `serverUrl` is set, `set_server` cannot switch/);
+  assert.match(setup, /set_server[\s\S]*saves[\s\S]*`serverUrl` in\s+`~\/\.superblocks\/plugin\.json`/);
+  assert.match(setup, /edit\s+`serverUrl`[\s\S]*new Cowork task/);
+  assert.doesNotMatch(setup, /cannot switch\s+servers|with the browser login\s+outside the plugin/);
   assert.doesNotMatch(setup, /@master|cli-ephemeral|npm\.pkg\.github\.com/);
   assert.doesNotMatch(setup, /edit `SUPERBLOCKS_CLI_PACKAGE` in the plugin's/);
   assert.doesNotMatch(setup, /npx|`superblocks login`|config set domain/i);
@@ -208,7 +209,7 @@ test(
     const npx = join(directory, "npx");
     await writeFile(
       npx,
-      "#!/usr/bin/env node\nconsole.log(JSON.stringify({ args: process.argv.slice(2), browserLogin: process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN }));\n",
+      "#!/usr/bin/env node\nconsole.log(JSON.stringify({ args: process.argv.slice(2), browserLogin: process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN, serverUrl: process.env.SUPERBLOCKS_SERVER_URL }));\n",
     );
     await chmod(npx, 0o755);
     const home = join(directory, "home");
@@ -221,6 +222,7 @@ test(
       const env = { ...process.env, HOME: home, PATH: `${directory}:${process.env.PATH}` };
       delete env.SUPERBLOCKS_CLI_PACKAGE;
       delete env.SUPERBLOCKS_MCP_BROWSER_LOGIN;
+      delete env.SUPERBLOCKS_SERVER_URL;
       const { stdout, stderr } = await execFile(process.execPath, [launcher], {
         env: { ...env, ...settings },
       });
@@ -254,6 +256,13 @@ test(
     await writeFile(pinFile, JSON.stringify({}));
     assert.ok(installs(await launch(), "@superblocksteam/cli@beta"));
 
+    await writeFile(pinFile, JSON.stringify({ serverUrl: "https://acme.superblocks.com" }));
+    assert.equal(
+      (await launch()).serverUrl,
+      undefined,
+      "the CLI reads serverUrl itself; forwarding it as SUPERBLOCKS_SERVER_URL would lock set_server",
+    );
+
     await rm(join(home, ".superblocks"), { force: true, recursive: true });
     await writeFile(join(home, ".superblocks"), "not a directory");
     assert.ok(installs(await launch(), "@superblocksteam/cli@beta"));
@@ -272,89 +281,6 @@ test(
       await writeFile(pinFile, contents);
       await assert.rejects(launch(), error);
     }
-  },
-);
-
-test(
-  "launcher reads the server URL from the user settings file",
-  { skip: process.platform === "win32" },
-  async (t) => {
-    const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-server-"));
-    t.after(() => rm(directory, { force: true, recursive: true }));
-    const npx = join(directory, "npx");
-    await writeFile(
-      npx,
-      "#!/usr/bin/env node\nconsole.log(JSON.stringify({ serverUrl: process.env.SUPERBLOCKS_SERVER_URL ?? null }));\n",
-    );
-    await chmod(npx, 0o755);
-    const home = join(directory, "home");
-    const settingsFile = join(home, ".superblocks", "plugin.json");
-    await mkdir(join(home, ".superblocks"), { recursive: true });
-    const launcher = fileURLToPath(
-      repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
-    );
-    const launch = async (settings = {}) => {
-      const env = { ...process.env, HOME: home, PATH: `${directory}:${process.env.PATH}` };
-      for (const name of [
-        "SUPERBLOCKS_CLI_PACKAGE",
-        "SUPERBLOCKS_MCP_BROWSER_LOGIN",
-        "SUPERBLOCKS_SERVER_URL",
-      ]) {
-        delete env[name];
-      }
-      const { stdout, stderr } = await execFile(process.execPath, [launcher], {
-        env: { ...env, ...settings },
-      });
-      return { ...JSON.parse(stdout), stderr };
-    };
-
-    assert.equal((await launch()).serverUrl, null);
-
-    await writeFile(settingsFile, JSON.stringify({ serverUrl: " https://acme.superblocks.com " }));
-    const pinned = await launch();
-    assert.equal(pinned.serverUrl, "https://acme.superblocks.com");
-    assert.match(pinned.stderr, /server: https:\/\/acme\.superblocks\.com \(source: serverUrl in .*plugin\.json\)/);
-    assert.equal(
-      (await launch({ SUPERBLOCKS_SERVER_URL: "http://localhost:8080" })).serverUrl,
-      "http://localhost:8080",
-    );
-    assert.equal(
-      (await launch({ SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@2.0.0" })).serverUrl,
-      "https://acme.superblocks.com",
-    );
-    await assert.rejects(
-      launch({ SUPERBLOCKS_MCP_BROWSER_LOGIN: "false" }),
-      /Remove serverUrl in .*plugin\.json when SUPERBLOCKS_MCP_BROWSER_LOGIN is false/,
-    );
-
-    await writeFile(settingsFile, JSON.stringify({ serverUrl: "" }));
-    assert.equal((await launch()).serverUrl, null);
-
-    for (const [contents, error] of [
-      [JSON.stringify({ serverUrl: 8080 }), /serverUrl in .*plugin\.json must be a string/],
-      [
-        JSON.stringify({ serverUrl: "http://acme.superblocks.com" }),
-        /serverUrl in .*plugin\.json must be an HTTPS origin/,
-      ],
-      [
-        JSON.stringify({ serverUrl: "not a url" }),
-        /serverUrl in .*plugin\.json must be a Superblocks server origin/,
-      ],
-    ]) {
-      await writeFile(settingsFile, contents);
-      await assert.rejects(launch(), error);
-    }
-
-    await writeFile(settingsFile, "{not json");
-    assert.equal(
-      (
-        await launch({
-          SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@beta",
-          SUPERBLOCKS_SERVER_URL: "https://app.superblocks.com",
-        })
-      ).serverUrl,
-      "https://app.superblocks.com",
-    );
   },
 );
 

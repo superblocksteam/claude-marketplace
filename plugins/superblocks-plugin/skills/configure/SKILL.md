@@ -27,8 +27,8 @@ server?" Offer "Yes, use this server" and a free-text option for another
 server URL. If the form cannot collect free text, ask in chat. Wait for the
 answer, then call `set_server` with the chosen origin. Use HTTPS with no
 credentials, path, query, or fragment; HTTP is allowed only for loopback such
-as `http://localhost:8080`. The tool saves the server with the browser login
-outside the plugin and applies it to the current Cowork task. If sign-in opens,
+as `http://localhost:8080`. The tool saves the server as `serverUrl` in
+`~/.superblocks/plugin.json` and applies it to the current Cowork task. If sign-in opens,
 ask the user to finish it in the browser and return to Cowork. Do not edit the
 plugin's `.mcp.json` to change the server.
 For a custom HTTPS or loopback server, `set_server` requests its own confirmation form
@@ -45,11 +45,12 @@ URL; do not use version ranges. The pin lives outside the plugin, so it survives
 delete `cliPackage` to return to the default. Start a new Cowork task after
 changing the package.
 
-To make every task start on one server, set `serverUrl` in the same file, for
-example `{"serverUrl": "https://acme.superblocks.com"}`, using the same origin
-rules as `set_server`. While `serverUrl` is set, `set_server` cannot switch
-servers; if the user asks to change servers, tell them to edit or delete
-`serverUrl` and start a new Cowork task.
+Every new task starts on the saved `serverUrl`. Users can also edit
+`serverUrl` in that file by hand, for example
+`{"serverUrl": "https://acme.superblocks.com"}`, using the same origin rules
+as `set_server`, then start a new Cowork task. Delete `serverUrl` to return to
+`https://app.superblocks.com`. If the saved login belongs to another server,
+call **Login** after the change.
 
 After **Login** or `set_server` opens the browser, ask the user to finish signing in
 and return to Cowork. If the browser does not open, check the runtime versions,
