@@ -47,8 +47,11 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   }
   assert.equal("userConfig" in manifest, false);
   assert.match(setup, /Node\.js 24.*npm\s+10/is);
-  assert.match(setup, /Is https:\/\/app\.superblocks\.com the correct\s+server\?/i);
-  assert.match(setup, /yes[\s\S]*free.text option for another\s+server URL/i);
+  assert.match(setup, /Which Superblocks server should the\s+plugin use\?/i);
+  assert.match(setup, /https:\/\/app\.superblocks\.com[\s\S]*free.text option for another\s+server URL/i);
+  assert.match(setup, /do not describe\s+`https:\/\/app\.superblocks\.com` as the current server/i);
+  assert.doesNotMatch(setup, /Is https:\/\/app\.superblocks\.com the correct/i);
+  assert.match(setup, /not a valid server origin[\s\S]*ignores it/i);
   assert.match(setup, /set_server[\s\S]*current Cowork task/i);
   assert.match(setup, /custom HTTPS or loopback server[\s\S]*confirmation form/i);
   assert.match(setup, /set_server.*sign-in status[\s\S]*whoami/i);
@@ -63,6 +66,9 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
     /~\/\.superblocks\/plugin\.json[\s\S]*cliPackage[\s\S]*exact version or tag[\s\S]*file:/,
   );
   assert.match(setup, /survives plugin updates/i);
+  assert.match(setup, /set_server[\s\S]*saves[\s\S]*`serverUrl` in\s+`~\/\.superblocks\/plugin\.json`/);
+  assert.match(setup, /edit\s+`serverUrl`[\s\S]*new Cowork task/);
+  assert.doesNotMatch(setup, /cannot switch\s+servers|with the browser login\s+outside the plugin/);
   assert.doesNotMatch(setup, /@master|cli-ephemeral|npm\.pkg\.github\.com/);
   assert.doesNotMatch(setup, /edit `SUPERBLOCKS_CLI_PACKAGE` in the plugin's/);
   assert.doesNotMatch(setup, /npx|`superblocks login`|config set domain/i);
@@ -206,7 +212,7 @@ test(
     const npx = join(directory, "npx");
     await writeFile(
       npx,
-      "#!/usr/bin/env node\nconsole.log(JSON.stringify({ args: process.argv.slice(2), browserLogin: process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN }));\n",
+      "#!/usr/bin/env node\nconsole.log(JSON.stringify({ args: process.argv.slice(2), browserLogin: process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN, serverUrl: process.env.SUPERBLOCKS_SERVER_URL }));\n",
     );
     await chmod(npx, 0o755);
     const home = join(directory, "home");
@@ -219,6 +225,7 @@ test(
       const env = { ...process.env, HOME: home, PATH: `${directory}:${process.env.PATH}` };
       delete env.SUPERBLOCKS_CLI_PACKAGE;
       delete env.SUPERBLOCKS_MCP_BROWSER_LOGIN;
+      delete env.SUPERBLOCKS_SERVER_URL;
       const { stdout, stderr } = await execFile(process.execPath, [launcher], {
         env: { ...env, ...settings },
       });
@@ -251,6 +258,13 @@ test(
 
     await writeFile(pinFile, JSON.stringify({}));
     assert.ok(installs(await launch(), "@superblocksteam/cli@beta"));
+
+    await writeFile(pinFile, JSON.stringify({ serverUrl: "https://acme.superblocks.com" }));
+    assert.equal(
+      (await launch()).serverUrl,
+      undefined,
+      "the CLI reads serverUrl itself; forwarding it as SUPERBLOCKS_SERVER_URL would lock set_server",
+    );
 
     await rm(join(home, ".superblocks"), { force: true, recursive: true });
     await writeFile(join(home, ".superblocks"), "not a directory");

@@ -22,13 +22,14 @@ a saved login changed outside this task.
 ## Customize MCP settings
 
 When the user asks to configure the Superblocks server, use Claude's native
-question form if available to ask: "Is https://app.superblocks.com the correct
-server?" Offer "Yes, use this server" and a free-text option for another
-server URL. If the form cannot collect free text, ask in chat. Wait for the
+question form if available to ask: "Which Superblocks server should the
+plugin use?" Offer `https://app.superblocks.com` and a free-text option for another
+server URL. The plugin may already use a server saved earlier, so do not describe
+`https://app.superblocks.com` as the current server. If the form cannot collect free text, ask in chat. Wait for the
 answer, then call `set_server` with the chosen origin. Use HTTPS with no
 credentials, path, query, or fragment; HTTP is allowed only for loopback such
-as `http://localhost:8080`. The tool saves the server with the browser login
-outside the plugin and applies it to the current Cowork task. If sign-in opens,
+as `http://localhost:8080`. The tool saves the server as `serverUrl` in
+`~/.superblocks/plugin.json` and applies it to the current Cowork task. If sign-in opens,
 ask the user to finish it in the browser and return to Cowork. Do not edit the
 plugin's `.mcp.json` to change the server.
 For a custom HTTPS or loopback server, `set_server` requests its own confirmation form
@@ -44,6 +45,15 @@ Accept an exact version or tag of `@superblocksteam/cli`, or a local `file:`
 URL; do not use version ranges. The pin lives outside the plugin, so it survives plugin updates;
 delete `cliPackage` to return to the default. Start a new Cowork task after
 changing the package.
+
+Every new task starts on the saved `serverUrl`. Users can also edit
+`serverUrl` in that file by hand, for example
+`{"serverUrl": "https://acme.superblocks.com"}`, using the same origin rules
+as `set_server`, then start a new Cowork task. Delete `serverUrl` to return to
+`https://app.superblocks.com`. If the saved login belongs to another server,
+call **Login** after the change. If `serverUrl` is not a valid server origin,
+the plugin ignores it and uses the default server, or the saved login's server,
+which it then saves in its place; fix the value and start a new Cowork task.
 
 After **Login** or `set_server` opens the browser, ask the user to finish signing in
 and return to Cowork. If the browser does not open, check the runtime versions,
