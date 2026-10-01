@@ -63,7 +63,7 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
     /~\/\.superblocks\/plugin\.json[\s\S]*cliPackage[\s\S]*exact version or tag[\s\S]*file:/,
   );
   assert.match(setup, /survives plugin updates/i);
-  assert.match(setup, /~\/\.npmrc[\s\S]*\/\/npm\.pkg\.github\.com\/:_authToken=[\s\S]*read:packages/);
+  assert.doesNotMatch(setup, /@master|cli-ephemeral|npm\.pkg\.github\.com/);
   assert.doesNotMatch(setup, /edit `SUPERBLOCKS_CLI_PACKAGE` in the plugin's/);
   assert.doesNotMatch(setup, /npx|`superblocks login`|config set domain/i);
 });

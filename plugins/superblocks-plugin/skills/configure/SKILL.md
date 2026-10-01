@@ -37,25 +37,13 @@ the tool will not switch servers; a chat reply cannot replace this confirmation.
 Report `set_server`'s sign-in status from its result. A successful `whoami`
 does not show whether browser sign-in happened during the server change.
 
-The plugin runs `@superblocksteam/cli@beta` by default. For advanced package
-testing, pin another package in `~/.superblocks/plugin.json`, for example
-`{"cliPackage": "@superblocksteam/cli@master"}`.
-Accept an exact version or tag, such as `@superblocksteam/cli@beta`, or a
-local `file:` URL. Use
-`@superblocksteam/cli` or `@superblocksteam/cli-ephemeral` and do not use
-version ranges. The ephemeral package and the `@superblocksteam/cli@master`
-tag are fetched from GitHub Packages and require npm authentication for
-`npm.pkg.github.com`. To set that up, add to `~/.npmrc` the line
-`//npm.pkg.github.com/:_authToken=<token>`, using a GitHub
-personal access token with the `read:packages` scope. Write the token itself,
-not a `${VAR}` reference, because Cowork does not pass shell variables to the
-plugin. The MCP log names the package, where it was selected, and its registry
-at startup; an `E401` or `E403` after a GitHub Packages line means the token is
-missing or lacks access. The pin lives outside the plugin, so it
-survives plugin updates; delete `cliPackage` to return to the default. A
-`SUPERBLOCKS_CLI_PACKAGE` environment variable overrides the pin when the host
-passes it through, which Claude Code started from a terminal does and Cowork
-does not. Start a new Cowork task after changing the package.
+The plugin runs `@superblocksteam/cli@beta` by default. To pin another
+version, set `cliPackage` in `~/.superblocks/plugin.json`, for example
+`{"cliPackage": "@superblocksteam/cli@2.0.0"}`.
+Accept an exact version or tag of `@superblocksteam/cli`, or a local `file:`
+URL; do not use version ranges. The pin lives outside the plugin, so it survives plugin updates;
+delete `cliPackage` to return to the default. Start a new Cowork task after
+changing the package.
 
 After **Login** or `set_server` opens the browser, ask the user to finish signing in
 and return to Cowork. If the browser does not open, check the runtime versions,
