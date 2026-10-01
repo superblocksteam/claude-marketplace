@@ -45,6 +45,12 @@ URL; do not use version ranges. The pin lives outside the plugin, so it survives
 delete `cliPackage` to return to the default. Start a new Cowork task after
 changing the package.
 
+To make every task start on one server, set `serverUrl` in the same file, for
+example `{"serverUrl": "https://acme.superblocks.com"}`, using the same origin
+rules as `set_server`. While `serverUrl` is set, `set_server` cannot switch
+servers; if the user asks to change servers, tell them to edit or delete
+`serverUrl` and start a new Cowork task.
+
 After **Login** or `set_server` opens the browser, ask the user to finish signing in
 and return to Cowork. If the browser does not open, check the runtime versions,
 the server URL, and the MCP launch error shown by Claude. Retry **Login** only

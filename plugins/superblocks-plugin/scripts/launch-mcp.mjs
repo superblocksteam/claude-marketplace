@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const DEFAULT_CLI_PACKAGE = "@superblocksteam/cli@beta";
-const NO_PIN_ERRORS = ["ENOENT", "ENOTDIR"];
+const NO_SETTINGS_ERRORS = ["ENOENT", "ENOTDIR"];
 const TRUE_VALUES = ["true", "1", "yes", "y"];
 const FALSE_VALUES = ["false", "0", "no", "n"];
 
@@ -13,46 +13,49 @@ function fail(message) {
   process.exit(1);
 }
 
-function pinFilePath() {
-  try {
-    return join(homedir(), ".superblocks", "plugin.json");
-  } catch {
-    return undefined;
-  }
-}
+class UserSettings {
+  #path;
+  #values;
 
-function readPinnedPackage() {
-  const pinFile = pinFilePath();
-  if (!pinFile) return undefined;
-  let contents;
-  try {
-    contents = readFileSync(pinFile, "utf8");
-  } catch (error) {
-    if (NO_PIN_ERRORS.includes(error.code)) return undefined;
-    fail(`Could not read ${pinFile}: ${error.message}`);
+  get #settings() {
+    this.#values ??= this.#read();
+    return this.#values;
   }
-  let pin;
-  try {
-    pin = JSON.parse(contents);
-  } catch {
-    fail(`${pinFile} is not valid JSON.`);
-  }
-  if (typeof pin !== "object" || pin === null || Array.isArray(pin)) {
-    fail(`${pinFile} must contain a JSON object.`);
-  }
-  if (pin.cliPackage === undefined) return undefined;
-  if (typeof pin.cliPackage !== "string") {
-    fail(`cliPackage in ${pinFile} must be a string.`);
-  }
-  return { source: `cliPackage in ${pinFile}`, spec: pin.cliPackage.trim() };
-}
 
-function selectPackage() {
-  const fromEnv = process.env.SUPERBLOCKS_CLI_PACKAGE?.trim();
-  if (fromEnv) return { source: "SUPERBLOCKS_CLI_PACKAGE", spec: fromEnv };
-  return (
-    readPinnedPackage() ?? { source: "The plugin default", spec: DEFAULT_CLI_PACKAGE }
-  );
+  #read() {
+    try {
+      this.#path = join(homedir(), ".superblocks", "plugin.json");
+    } catch {
+      return {};
+    }
+    let contents;
+    try {
+      contents = readFileSync(this.#path, "utf8");
+    } catch (error) {
+      if (NO_SETTINGS_ERRORS.includes(error.code)) return {};
+      fail(`Could not read ${this.#path}: ${error.message}`);
+    }
+    let settings;
+    try {
+      settings = JSON.parse(contents);
+    } catch {
+      fail(`${this.#path} is not valid JSON.`);
+    }
+    if (typeof settings !== "object" || settings === null || Array.isArray(settings)) {
+      fail(`${this.#path} must contain a JSON object.`);
+    }
+    return settings;
+  }
+
+  resolve(envName, settingName) {
+    const fromEnv = process.env[envName]?.trim();
+    if (fromEnv) return { source: envName, value: fromEnv };
+    const setting = this.#settings[settingName];
+    if (setting === undefined) return undefined;
+    const source = `${settingName} in ${this.#path}`;
+    if (typeof setting !== "string") fail(`${source} must be a string.`);
+    return setting.trim() ? { source, value: setting.trim() } : undefined;
+  }
 }
 
 function readBrowserLogin() {
@@ -62,7 +65,11 @@ function readBrowserLogin() {
   fail("SUPERBLOCKS_MCP_BROWSER_LOGIN must be true or false.");
 }
 
-const { source: packageSource, spec: packageSpec } = selectPackage();
+const userSettings = new UserSettings();
+const { source: packageSource, value: packageSpec } = userSettings.resolve(
+  "SUPERBLOCKS_CLI_PACKAGE",
+  "cliPackage",
+) ?? { source: "The plugin default", value: DEFAULT_CLI_PACKAGE };
 const packageMatch = packageSpec.match(
   /^@superblocksteam\/(cli(?:-ephemeral)?)(?:@(.+))?$/,
 );
@@ -81,13 +88,13 @@ if (
 }
 const browserLogin = readBrowserLogin();
 
-const serverUrl = process.env.SUPERBLOCKS_SERVER_URL;
-if (serverUrl) {
+const server = userSettings.resolve("SUPERBLOCKS_SERVER_URL", "serverUrl");
+if (server) {
   let url;
   try {
-    url = new URL(serverUrl);
+    url = new URL(server.value);
   } catch {
-    fail("SUPERBLOCKS_SERVER_URL must be a Superblocks server origin.");
+    fail(`${server.source} must be a Superblocks server origin.`);
   }
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
   if (
@@ -98,11 +105,11 @@ if (serverUrl) {
     url.search ||
     url.hash
   ) {
-    fail("SUPERBLOCKS_SERVER_URL must be an HTTPS origin (HTTP only on loopback).");
+    fail(`${server.source} must be an HTTPS origin (HTTP only on loopback).`);
   }
 }
-if (browserLogin === "false" && serverUrl) {
-  fail("Remove SUPERBLOCKS_SERVER_URL when SUPERBLOCKS_MCP_BROWSER_LOGIN is false.");
+if (browserLogin === "false" && server) {
+  fail(`Remove ${server.source} when SUPERBLOCKS_MCP_BROWSER_LOGIN is false.`);
 }
 
 const githubOnly = packageName === "cli-ephemeral" || selector === "master";
@@ -133,6 +140,7 @@ const env = {
     ),
   ),
   SUPERBLOCKS_MCP_BROWSER_LOGIN: browserLogin,
+  ...(server && { SUPERBLOCKS_SERVER_URL: server.value }),
 };
 
 if (Number(process.versions.node.split(".")[0]) < 24) {
@@ -143,6 +151,9 @@ console.error(
     githubOnly ? ", requires npm authentication" : ""
   }).`,
 );
+if (server) {
+  console.error(`Superblocks MCP server: ${server.value} (source: ${server.source}).`);
+}
 if (process.platform !== "win32" && typeof process.execve === "function") {
   try {
     process.execve("/usr/bin/env", ["env", "npx", ...npxArgs], env);
