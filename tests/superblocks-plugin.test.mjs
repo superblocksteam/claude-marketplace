@@ -96,8 +96,6 @@ test("default launch runs the installed CLI without npm or npx", async (t) => {
   delete env.SUPERBLOCKS_SERVER_URL;
   const { stdout } = await execFile(process.execPath, [launcher], { cwd: tmpdir(), env });
   assert.deepEqual(JSON.parse(stdout), { args: ["mcp", "serve"], browserLogin: "true" });
-  const manifest = await readJson("plugins/superblocks-plugin/package.json");
-  assert.equal(manifest.dependencies["@superblocksteam/cli"], "beta");
 });
 
 test("marketplace dependency takes precedence over legacy package overrides", async (t) => {

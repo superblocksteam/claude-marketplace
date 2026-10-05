@@ -36,6 +36,10 @@ test("dev publication follows main and preserves the branch after npm failures o
   ]) {
     cpSync(new URL(`../${path}`, import.meta.url), join(checkout, path));
   }
+  const packagePath = join(checkout, "plugins/superblocks-plugin/package.json");
+  const packageJson = JSON.parse(readFileSync(packagePath, "utf8"));
+  packageJson.dependencies["@superblocksteam/cli"] = "beta";
+  writeFileSync(packagePath, JSON.stringify(packageJson));
   writeFileSync(join(checkout, "feature.txt"), "first main change");
   git("add", ".");
   git("commit", "-m", "Initial main");
