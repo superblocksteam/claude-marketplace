@@ -2,8 +2,12 @@ import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const DEFAULT_CLI_PACKAGE = "@superblocksteam/cli@beta";
+const { dependencies } = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+);
+const DEFAULT_CLI_PACKAGE = `@superblocksteam/cli@${dependencies["@superblocksteam/cli"]}`;
 const NO_PIN_ERRORS = ["ENOENT", "ENOTDIR"];
 const TRUE_VALUES = ["true", "1", "yes", "y"];
 const FALSE_VALUES = ["false", "0", "no", "n"];
@@ -51,7 +55,11 @@ function selectPackage() {
   const fromEnv = process.env.SUPERBLOCKS_CLI_PACKAGE?.trim();
   if (fromEnv) return { source: "SUPERBLOCKS_CLI_PACKAGE", spec: fromEnv };
   return (
-    readPinnedPackage() ?? { source: "The plugin default", spec: DEFAULT_CLI_PACKAGE }
+    readPinnedPackage() ?? {
+      source: "The plugin default",
+      spec: DEFAULT_CLI_PACKAGE,
+      installed: true,
+    }
   );
 }
 
@@ -62,14 +70,10 @@ function readBrowserLogin() {
   fail("SUPERBLOCKS_MCP_BROWSER_LOGIN must be true or false.");
 }
 
-const { source: packageSource, spec: packageSpec } = selectPackage();
-const packageMatch = packageSpec.match(
-  /^@superblocksteam\/(cli(?:-ephemeral)?)(?:@(.+))?$/,
-);
+const { source: packageSource, spec: packageSpec, installed = false } = selectPackage();
+const packageMatch = packageSpec.match(/^@superblocksteam\/(cli(?:-ephemeral)?)(?:@(.+))?$/);
 if (!packageMatch) {
-  fail(
-    `${packageSource} must select @superblocksteam/cli or @superblocksteam/cli-ephemeral.`,
-  );
+  fail(`${packageSource} must select @superblocksteam/cli or @superblocksteam/cli-ephemeral.`);
 }
 const [, packageName, selector] = packageMatch;
 if (
@@ -106,9 +110,7 @@ if (browserLogin === "false" && serverUrl) {
 }
 
 const githubOnly = packageName === "cli-ephemeral" || selector === "master";
-const scopedRegistry = githubOnly
-  ? "https://npm.pkg.github.com/"
-  : "https://registry.npmjs.org/";
+const scopedRegistry = githubOnly ? "https://npm.pkg.github.com/" : "https://registry.npmjs.org/";
 const registryArgs = [
   "--registry=https://registry.npmjs.org/",
   `--@superblocksteam:registry=${scopedRegistry}`,
@@ -130,13 +132,18 @@ const npxArgs = [
   "mcp",
   "serve",
 ];
+const command = installed ? process.execPath : "npx";
+const args = installed
+  ? [
+      fileURLToPath(new URL("../node_modules/@superblocksteam/cli/bin/run.js", import.meta.url)),
+      "mcp",
+      "serve",
+    ]
+  : npxArgs;
 const env = {
   ...Object.fromEntries(
     Object.entries(process.env).filter(
-      ([name]) =>
-        !["NPM_CONFIG_PACKAGE", "SUPERBLOCKS_CLI_PACKAGE"].includes(
-          name.toUpperCase(),
-        ),
+      ([name]) => !["NPM_CONFIG_PACKAGE", "SUPERBLOCKS_CLI_PACKAGE"].includes(name.toUpperCase()),
     ),
   ),
   SUPERBLOCKS_MCP_BROWSER_LOGIN: browserLogin,
@@ -150,21 +157,16 @@ console.error(
     githubOnly ? ", requires npm authentication" : ""
   }).`,
 );
-if (!selector?.startsWith("file:")) {
-  const cacheAddArgs = [
-    "cache",
-    "add",
-    packageSpec,
-    "--prefer-online",
-    ...registryArgs,
-  ];
+if (!installed && !selector?.startsWith("file:")) {
+  const cacheAddArgs = ["cache", "add", packageSpec, "--prefer-online", ...registryArgs];
   try {
     (process.platform === "win32"
-      ? spawn(
-          process.env.ComSpec ?? "cmd.exe",
-          ["/D", "/S", "/C", "npm.cmd", ...cacheAddArgs],
-          { detached: true, env, stdio: "ignore", windowsHide: true },
-        )
+      ? spawn(process.env.ComSpec ?? "cmd.exe", ["/D", "/S", "/C", "npm.cmd", ...cacheAddArgs], {
+          detached: true,
+          env,
+          stdio: "ignore",
+          windowsHide: true,
+        })
       : spawn("npm", cacheAddArgs, { detached: true, env, stdio: "ignore" })
     )
       .on("error", () => {})
@@ -173,23 +175,26 @@ if (!selector?.startsWith("file:")) {
 }
 if (process.platform !== "win32" && typeof process.execve === "function") {
   try {
-    process.execve("/usr/bin/env", ["env", "npx", ...npxArgs], env);
+    process.execve(
+      installed ? command : "/usr/bin/env",
+      installed ? [command, ...args] : ["env", command, ...args],
+      env,
+    );
   } catch {}
 }
 
 const result =
-  process.platform === "win32"
-    ? spawnSync(
-        process.env.ComSpec ?? "cmd.exe",
-        ["/D", "/S", "/C", "npx.cmd", ...npxArgs],
-        { env, stdio: "inherit", windowsHide: true },
-      )
-    : spawnSync("npx", npxArgs, { env, stdio: "inherit" });
+  process.platform === "win32" && !installed
+    ? spawnSync(process.env.ComSpec ?? "cmd.exe", ["/D", "/S", "/C", "npx.cmd", ...npxArgs], {
+        env,
+        stdio: "inherit",
+        windowsHide: true,
+      })
+    : spawnSync(command, args, { env, stdio: "inherit" });
 if (result.error) {
   console.error(`Could not start the Superblocks CLI: ${result.error.message}`);
   process.exitCode = 1;
 } else {
-  if (result.signal)
-    console.error(`Superblocks CLI terminated by ${result.signal}.`);
+  if (result.signal) console.error(`Superblocks CLI terminated by ${result.signal}.`);
   process.exitCode = result.status ?? 1;
 }

@@ -3,6 +3,7 @@ import { execFile as execFileCallback, spawn } from "node:child_process";
 import { once } from "node:events";
 import {
   chmod,
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -10,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -20,7 +21,19 @@ const repoFile = (path) => new URL(`../${path}`, import.meta.url);
 const readJson = async (path) =>
   JSON.parse(await readFile(repoFile(path), "utf8"));
 
-// Every launch starts a detached `npm cache add`. Keep it off the network:
+async function installedPlugin(directory, script) {
+  const plugin = join(directory, "plugin with spaces");
+  await cp(repoFile("plugins/superblocks-plugin"), plugin, {
+    recursive: true,
+    filter: (source) => basename(source) !== "node_modules",
+  });
+  const cli = join(plugin, "node_modules", "@superblocksteam", "cli", "bin");
+  await mkdir(cli, { recursive: true });
+  await writeFile(join(cli, "run.js"), script);
+  return join(plugin, "scripts", "launch-mcp.mjs");
+}
+
+// Package overrides start a detached `npm cache add`. Keep it off the network:
 // it finds this npm first, which records its arguments and exits.
 const isolation = await mkdtemp(join(tmpdir(), "superblocks-plugin-isolation-"));
 const npmCalls = join(isolation, "npm-calls");
@@ -86,15 +99,36 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   assert.doesNotMatch(setup, /npx|`superblocks login`|config set domain/i);
 });
 
+test("default launch runs the installed CLI without npm or npx", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-installed-"));
+  t.after(() => rm(directory, { force: true, recursive: true }));
+  const launcher = await installedPlugin(
+    directory,
+    'console.log(JSON.stringify({ args: process.argv.slice(2), browserLogin: process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN }));\n',
+  );
+  for (const command of ["npm", "npx"]) {
+    const executable = join(directory, command);
+    await writeFile(executable, '#!/usr/bin/env node\nthrow new Error("package manager must not run");\n');
+    await chmod(executable, 0o755);
+  }
+  const env = { ...process.env, HOME: directory, PATH: `${directory}:${process.env.PATH}` };
+  delete env.SUPERBLOCKS_CLI_PACKAGE;
+  delete env.SUPERBLOCKS_MCP_BROWSER_LOGIN;
+  delete env.SUPERBLOCKS_SERVER_URL;
+  const { stdout } = await execFile(process.execPath, [launcher], { cwd: tmpdir(), env });
+  assert.deepEqual(JSON.parse(stdout), { args: ["mcp", "serve"], browserLogin: "true" });
+  const manifest = await readJson("plugins/superblocks-plugin/package.json");
+  assert.equal(manifest.dependencies["@superblocksteam/cli"], "beta");
+});
+
 test(
-  "launcher becomes npx so signal delivery needs no supervisor",
+  "launcher becomes the installed CLI so signal delivery needs no supervisor",
   { skip: process.platform === "win32" },
   async (t) => {
     const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-signal-"));
     const signalFile = join(directory, "signal");
-    const npx = join(directory, "npx");
-    await writeFile(
-      npx,
+    const launcher = await installedPlugin(
+      directory,
       `#!/usr/bin/env node
 const { writeFileSync } = require("node:fs");
 process.on("SIGTERM", () => {
@@ -105,15 +139,11 @@ console.log(process.pid);
 setInterval(() => {}, 1_000);
 `,
     );
-    await chmod(npx, 0o755);
-
-    const launcher = fileURLToPath(
-      repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
-    );
     const child = spawn(process.execPath, [launcher], {
       env: {
         ...process.env,
-        SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@beta",
+        SUPERBLOCKS_CLI_PACKAGE: "",
+        HOME: directory,
         PATH: `${directory}:${process.env.PATH}`,
         TEST_SIGNAL_FILE: signalFile,
       },
@@ -127,18 +157,18 @@ setInterval(() => {}, 1_000);
       once(child.stdout, "data", { signal: AbortSignal.timeout(5_000) }),
       once(child, "exit").then(([code, signal]) => {
         throw new Error(
-          `Launcher exited before npx started: code=${code} signal=${signal}`,
+          `Launcher exited before the CLI started: code=${code} signal=${signal}`,
         );
       }),
     ]);
-    const npxPid = Number(output.toString().trim());
+    const cliPid = Number(output.toString().trim());
     child.kill("SIGTERM");
     const [code, signal] = await once(child, "exit");
 
     assert.equal(code, 0);
     assert.equal(signal, null);
     assert.equal(await readFile(signalFile, "utf8"), "SIGTERM");
-    assert.equal(npxPid, child.pid);
+    assert.equal(cliPid, child.pid);
   },
 );
 
@@ -230,9 +260,7 @@ test(
     const home = join(directory, "home");
     const pinFile = join(home, ".superblocks", "plugin.json");
     await mkdir(join(home, ".superblocks"), { recursive: true });
-    const launcher = fileURLToPath(
-      repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
-    );
+    const launcher = await installedPlugin(directory, await readFile(npx, "utf8"));
     const launch = async (settings = {}) => {
       const env = { ...process.env, HOME: home, PATH: `${directory}:${process.env.PATH}` };
       delete env.SUPERBLOCKS_CLI_PACKAGE;
@@ -247,10 +275,10 @@ test(
       launched.args.includes(`--package=${packageSpec}`);
 
     const defaults = await launch();
-    assert.ok(installs(defaults, "@superblocksteam/cli@beta"));
+    assert.deepEqual(defaults.args, ["mcp", "serve"]);
     assert.equal(defaults.browserLogin, "true");
     assert.match(defaults.stderr, /@superblocksteam\/cli@beta.*default.*registry\.npmjs\.org/);
-    assert.ok(installs(await launch({ SUPERBLOCKS_CLI_PACKAGE: " " }), "@superblocksteam/cli@beta"));
+    assert.deepEqual((await launch({ SUPERBLOCKS_CLI_PACKAGE: " " })).args, ["mcp", "serve"]);
     assert.equal((await launch({ SUPERBLOCKS_MCP_BROWSER_LOGIN: "false" })).browserLogin, "false");
 
     await writeFile(pinFile, JSON.stringify({ cliPackage: "@superblocksteam/cli@master" }));
@@ -269,7 +297,7 @@ test(
     );
 
     await writeFile(pinFile, JSON.stringify({}));
-    assert.ok(installs(await launch(), "@superblocksteam/cli@beta"));
+    assert.deepEqual((await launch()).args, ["mcp", "serve"]);
 
     await writeFile(pinFile, JSON.stringify({ serverUrl: "https://acme.superblocks.com" }));
     assert.equal(
@@ -280,7 +308,7 @@ test(
 
     await rm(join(home, ".superblocks"), { force: true, recursive: true });
     await writeFile(join(home, ".superblocks"), "not a directory");
-    assert.ok(installs(await launch(), "@superblocksteam/cli@beta"));
+    assert.deepEqual((await launch()).args, ["mcp", "serve"]);
     await rm(join(home, ".superblocks"), { force: true });
     await mkdir(join(home, ".superblocks"));
 
@@ -308,9 +336,7 @@ test(
     const npx = join(directory, "npx");
     await writeFile(npx, "#!/usr/bin/env node\nconsole.log(JSON.stringify(process.argv.slice(2)));\n");
     await chmod(npx, 0o755);
-    const launcher = pathToFileURL(
-      fileURLToPath(repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs")),
-    ).href;
+    const launcher = pathToFileURL(await installedPlugin(directory, await readFile(npx, "utf8"))).href;
     const withoutHome = `import os from "node:os"; import { syncBuiltinESMExports } from "node:module"; os.homedir = () => { throw new Error("no home"); }; syncBuiltinESMExports(); await import(${JSON.stringify(launcher)})`;
     for (const [settings, packageSpec] of [
       [{}, "@superblocksteam/cli@beta"],
@@ -323,7 +349,11 @@ test(
         ["--input-type=module", "--eval", withoutHome],
         { env },
       );
-      assert.ok(JSON.parse(stdout).includes(`--package=${packageSpec}`));
+      if (settings.SUPERBLOCKS_CLI_PACKAGE) {
+        assert.ok(JSON.parse(stdout).includes(`--package=${packageSpec}`));
+      } else {
+        assert.deepEqual(JSON.parse(stdout), ["mcp", "serve"]);
+      }
     }
   },
 );
@@ -472,25 +502,25 @@ test(
     const npx = join(directory, "npx");
     await writeFile(npx, '#!/usr/bin/env node\nconsole.log("fallback started");\n');
     await chmod(npx, 0o755);
-    const launcher = pathToFileURL(
-      fileURLToPath(repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs")),
-    ).href;
-    for (const execve of [
-      "undefined",
-      "() => { throw new Error('execve blocked') }",
+    const launcher = pathToFileURL(await installedPlugin(directory, await readFile(npx, "utf8"))).href;
+    for (const platformSetup of [
+      "process.execve = undefined",
+      "process.execve = () => { throw new Error('execve blocked') }",
+      "Object.defineProperty(process, 'platform', { value: 'win32' })",
     ]) {
       const { stdout } = await execFile(
         process.execPath,
         [
           "--input-type=module",
           "--eval",
-          `process.execve = ${execve}; await import(${JSON.stringify(launcher)})`,
+          `${platformSetup}; await import(${JSON.stringify(launcher)})`,
         ],
         {
           env: {
             ...process.env,
             PATH: `${directory}:${process.env.PATH}`,
-            SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@beta",
+            SUPERBLOCKS_CLI_PACKAGE: "",
+            HOME: directory,
           },
         },
       );

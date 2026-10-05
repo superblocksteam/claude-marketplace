@@ -38,13 +38,16 @@ the tool will not switch servers; a chat reply cannot replace this confirmation.
 Report `set_server`'s sign-in status from its result. A successful `whoami`
 does not show whether browser sign-in happened during the server change.
 
-The plugin runs `@superblocksteam/cli@beta` by default. To pin another
+The plugin declares `@superblocksteam/cli@beta` as a dependency and runs the
+installed CLI by default. Its lockfile selects the version installed with each
+plugin release. To pin another
 version, set `cliPackage` in `~/.superblocks/plugin.json`, for example
 `{"cliPackage": "@superblocksteam/cli@2.0.0"}`.
 Accept an exact version or tag of `@superblocksteam/cli`, or a local `file:`
 URL; do not use version ranges. The pin lives outside the plugin, so it survives plugin updates;
 delete `cliPackage` to return to the default. Start a new Cowork task after
-changing the package.
+changing the package. Explicit package overrides use npm's cache and refresh it
+in the background.
 
 Every new task starts on the saved `serverUrl`. Users can also edit
 `serverUrl` in that file by hand, for example

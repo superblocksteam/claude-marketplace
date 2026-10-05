@@ -1,0 +1,7 @@
+{
+  "name": "superblocks-plugin",
+  "private": true,
+  "dependencies": {
+    "@superblocksteam/cli": "beta"
+  }
+}
