@@ -51,6 +51,7 @@ test("dev publication follows main and preserves the branch after npm failures o
     `#!/usr/bin/env node
 const fs = require("node:fs");
 if (process.env.TEST_NPM_FAIL) process.exit(1);
+if (process.argv[2] !== "update" || !process.argv.includes("@superblocksteam/cli")) process.exit(3);
 if (process.env.TEST_RACE_SHA) require("node:child_process").execFileSync("git", [
   "--git-dir", process.env.TEST_REMOTE, "update-ref", "refs/heads/dev", process.env.TEST_RACE_SHA
 ]);

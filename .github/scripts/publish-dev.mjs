@@ -22,7 +22,8 @@ writeJson(packagePath, packageJson);
 execFileSync(
   "npm",
   [
-    "install",
+    "update",
+    "@superblocksteam/cli",
     "--prefix",
     root,
     "--package-lock-only",
