@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -109,14 +109,21 @@ const githubOnly = packageName === "cli-ephemeral" || selector === "master";
 const scopedRegistry = githubOnly
   ? "https://npm.pkg.github.com/"
   : "https://registry.npmjs.org/";
+const registryArgs = [
+  "--registry=https://registry.npmjs.org/",
+  `--@superblocksteam:registry=${scopedRegistry}`,
+];
+// --prefer-online re-resolves the package on every launch and reinstalls in
+// the foreground whenever the tag moves, which outlasts the host's ~10s MCP
+// connect window. Launch from npm's cache and refresh that cache in the
+// background, so a moved tag is picked up on the next launch.
 const npxArgs = [
   "--yes",
-  "--prefer-online",
+  "--prefer-offline",
   "--ignore-scripts",
   "--no-audit",
   "--no-fund",
-  "--registry=https://registry.npmjs.org/",
-  `--@superblocksteam:registry=${scopedRegistry}`,
+  ...registryArgs,
   `--package=${packageSpec}`,
   "--",
   "superblocks",
@@ -143,6 +150,27 @@ console.error(
     githubOnly ? ", requires npm authentication" : ""
   }).`,
 );
+if (!selector?.startsWith("file:")) {
+  const cacheAddArgs = [
+    "cache",
+    "add",
+    packageSpec,
+    "--prefer-online",
+    ...registryArgs,
+  ];
+  try {
+    (process.platform === "win32"
+      ? spawn(
+          process.env.ComSpec ?? "cmd.exe",
+          ["/D", "/S", "/C", "npm.cmd", ...cacheAddArgs],
+          { detached: true, env, stdio: "ignore", windowsHide: true },
+        )
+      : spawn("npm", cacheAddArgs, { detached: true, env, stdio: "ignore" })
+    )
+      .on("error", () => {})
+      .unref();
+  } catch {}
+}
 if (process.platform !== "win32" && typeof process.execve === "function") {
   try {
     process.execve("/usr/bin/env", ["env", "npx", ...npxArgs], env);
