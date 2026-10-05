@@ -53,7 +53,7 @@ const fs = require("node:fs");
 if (process.env.TEST_NPM_FAIL) process.exit(1);
 if (process.argv[2] !== "update" || !process.argv.includes("@superblocksteam/cli")) process.exit(3);
 if (process.env.TEST_RACE_SHA) require("node:child_process").execFileSync("git", [
-  "--git-dir", process.env.TEST_REMOTE, "update-ref", "refs/heads/dev", process.env.TEST_RACE_SHA
+  "--git-dir", process.env.TEST_REMOTE, "update-ref", "refs/heads/master", process.env.TEST_RACE_SHA
 ]);
 const root = "plugins/superblocks-plugin";
 const manifest = JSON.parse(fs.readFileSync(root + "/package.json"));
@@ -73,9 +73,9 @@ fs.writeFileSync(root + "/package-lock.json", JSON.stringify({
     });
   const first = publish();
   assert.equal(first.status, 0, first.stderr);
-  const dev = git("rev-parse", "origin/dev");
-  assert.equal(git("rev-parse", "origin/dev^"), firstMain);
-  const readDev = (path) => JSON.parse(git("show", `origin/dev:${path}`));
+  const dev = git("rev-parse", "origin/master");
+  assert.equal(git("rev-parse", "origin/master^"), firstMain);
+  const readDev = (path) => JSON.parse(git("show", `origin/master:${path}`));
   const marketplace = readDev(".claude-plugin/marketplace.json");
   const plugin = readDev("plugins/superblocks-plugin/.claude-plugin/plugin.json");
   assert.equal(marketplace.name, "superblocks-dev");
@@ -104,12 +104,12 @@ fs.writeFileSync(root + "/package-lock.json", JSON.stringify({
   const latestMain = git("rev-parse", "HEAD");
   const failed = publish({ TEST_NPM_FAIL: "1" });
   assert.notEqual(failed.status, 0);
-  assert.equal(git("ls-remote", "origin", "refs/heads/dev").split(/\s/)[0], dev);
+  assert.equal(git("ls-remote", "origin", "refs/heads/master").split(/\s/)[0], dev);
   git("restore", ".");
   const updated = publish();
   assert.equal(updated.status, 0, updated.stderr);
-  assert.equal(git("rev-parse", "origin/dev^"), latestMain);
-  assert.equal(git("show", "origin/dev:feature.txt"), "latest main change");
+  assert.equal(git("rev-parse", "origin/master^"), latestMain);
+  assert.equal(git("show", "origin/master:feature.txt"), "latest main change");
   assert.notEqual(
     readDev("plugins/superblocks-plugin/.claude-plugin/plugin.json").version,
     plugin.version,
@@ -117,5 +117,5 @@ fs.writeFileSync(root + "/package-lock.json", JSON.stringify({
   const raced = publish({ TEST_REMOTE: remote, TEST_RACE_SHA: latestMain });
   assert.notEqual(raced.status, 0);
   assert.match(raced.stderr, /stale info/);
-  assert.equal(git("ls-remote", "origin", "refs/heads/dev").split(/\s/)[0], latestMain);
+  assert.equal(git("ls-remote", "origin", "refs/heads/master").split(/\s/)[0], latestMain);
 });

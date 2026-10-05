@@ -9,7 +9,7 @@ git("check-ref-format", "--branch", baseRef);
 if (git("status", "--porcelain")) throw new Error("Publishing dev requires a clean checkout.");
 git("fetch", "origin", baseRef);
 const mainSha = git("rev-parse", "FETCH_HEAD");
-const previousDev = git("ls-remote", "origin", "refs/heads/dev").split(/\s/)[0];
+const previousTip = git("ls-remote", "origin", "refs/heads/master").split(/\s/)[0];
 git("switch", "--detach", mainSha);
 
 const root = "plugins/superblocks-plugin";
@@ -57,5 +57,10 @@ git(
   "-m",
   `chore(plugin): generate dev marketplace with CLI ${cliVersion}`,
 );
-git("push", `--force-with-lease=refs/heads/dev:${previousDev}`, "origin", "HEAD:refs/heads/dev");
+git(
+  "push",
+  `--force-with-lease=refs/heads/master:${previousTip}`,
+  "origin",
+  "HEAD:refs/heads/master",
+);
 console.log(`Published superblocks-dev from ${baseRef} ${mainSha} with CLI ${cliVersion}.`);

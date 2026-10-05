@@ -3,15 +3,15 @@
 Superblocks plugin marketplace for Claude
 
 The default marketplace uses the CLI's public `@beta` channel. The generated
-`dev` branch uses public `@next` and is refreshed from the latest `main` on every
+`master` branch uses public `@next` and is refreshed from the latest `main` on every
 push. Run the **Publish dev marketplace** workflow manually to pick up a new
-CLI build between changes to `main`. Do not commit changes directly to `dev`;
+CLI build between changes to `main`. Do not commit changes directly to `master`;
 the workflow replaces that branch.
 
 In Claude Code, add the dev marketplace and install its plugin:
 
 ```sh
-claude plugin marketplace add 'https://github.com/superblocksteam/claude-marketplace.git#dev'
+claude plugin marketplace add 'https://github.com/superblocksteam/claude-marketplace.git#master'
 claude plugin install superblocks@superblocks-dev
 claude plugin disable superblocks@superblocks
 ```
