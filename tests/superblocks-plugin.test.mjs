@@ -20,6 +20,18 @@ const repoFile = (path) => new URL(`../${path}`, import.meta.url);
 const readJson = async (path) =>
   JSON.parse(await readFile(repoFile(path), "utf8"));
 
+// Every launch starts a detached `npm cache add`. Keep it off the network:
+// it finds this npm first, which records its arguments and exits.
+const isolation = await mkdtemp(join(tmpdir(), "superblocks-plugin-isolation-"));
+const npmCalls = join(isolation, "npm-calls");
+await writeFile(
+  join(isolation, "npm"),
+  `#!/usr/bin/env node\nrequire("node:fs").appendFileSync(${JSON.stringify(npmCalls)}, JSON.stringify(process.argv.slice(2)) + "\\n");\n`,
+);
+await chmod(join(isolation, "npm"), 0o755);
+process.env.PATH = `${isolation}:${process.env.PATH}`;
+test.after(() => rm(isolation, { force: true, recursive: true }));
+
 test("Superblocks starts browser login without terminal API-key setup", async () => {
   const [marketplace, manifest, mcp, setup] = await Promise.all([
     readJson(".claude-plugin/marketplace.json"),
@@ -484,5 +496,57 @@ test(
       );
       assert.equal(stdout.trim(), "fallback started");
     }
+  },
+);
+
+test(
+  "launcher runs npx from cache and refreshes npm's cache in the background",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-cache-"));
+    t.after(() => rm(directory, { force: true, recursive: true }));
+    const npx = join(directory, "npx");
+    await writeFile(npx, "#!/usr/bin/env node\nconsole.log(JSON.stringify(process.argv.slice(2)));\n");
+    await chmod(npx, 0o755);
+    const launcher = fileURLToPath(
+      repoFile("plugins/superblocks-plugin/scripts/launch-mcp.mjs"),
+    );
+    const launch = (packageSpec) =>
+      execFile(process.execPath, [launcher], {
+        env: {
+          ...process.env,
+          PATH: `${directory}:${process.env.PATH}`,
+          SUPERBLOCKS_CLI_PACKAGE: packageSpec,
+        },
+      });
+    const refreshes = async (packageSpec, attempts = 100) => {
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        const calls = (await readFile(npmCalls, "utf8").catch(() => ""))
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+          .filter((args) => args[2] === packageSpec);
+        if (calls.length) return calls;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return [];
+    };
+
+    const npxArgs = JSON.parse((await launch("@superblocksteam/cli@master")).stdout);
+    assert.ok(npxArgs.includes("--prefer-offline"));
+    assert.equal(npxArgs.includes("--prefer-online"), false);
+    const [refresh] = await refreshes("@superblocksteam/cli@master");
+    assert.deepEqual(refresh, [
+      "cache",
+      "add",
+      "@superblocksteam/cli@master",
+      "--prefer-online",
+      "--registry=https://registry.npmjs.org/",
+      "--@superblocksteam:registry=https://npm.pkg.github.com/",
+    ]);
+
+    const local = "@superblocksteam/cli@file:/tmp/local-cli";
+    await launch(local);
+    assert.deepEqual(await refreshes(local, 10), [], "file: packages are local builds");
   },
 );
