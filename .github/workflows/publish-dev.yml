@@ -6,6 +6,7 @@ on:
   workflow_dispatch: {}
 permissions:
   contents: write
+  packages: read
 concurrency:
   group: publish-dev-marketplace
   cancel-in-progress: false
@@ -21,7 +22,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
+          registry-url: https://npm.pkg.github.com
+          scope: "@superblocksteam"
       - name: Test plugin and dev publication
         run: node --test tests/*.test.mjs
       - name: Publish dev from the latest main
         run: node .github/scripts/publish-dev.mjs
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

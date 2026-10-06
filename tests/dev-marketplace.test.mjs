@@ -52,14 +52,15 @@ test("dev publication follows main and preserves the branch after npm failures o
 const fs = require("node:fs");
 if (process.env.TEST_NPM_FAIL) process.exit(1);
 if (process.argv[2] !== "update" || !process.argv.includes("@superblocksteam/cli")) process.exit(3);
+if (!process.argv.includes("--@superblocksteam:registry=https://npm.pkg.github.com/")) process.exit(4);
 if (process.env.TEST_RACE_SHA) require("node:child_process").execFileSync("git", [
   "--git-dir", process.env.TEST_REMOTE, "update-ref", "refs/heads/master", process.env.TEST_RACE_SHA
 ]);
 const root = "plugins/superblocks-plugin";
 const manifest = JSON.parse(fs.readFileSync(root + "/package.json"));
-if (manifest.dependencies["@superblocksteam/cli"] !== "next") process.exit(2);
+if (manifest.dependencies["@superblocksteam/cli"] !== "master") process.exit(2);
 fs.writeFileSync(root + "/package-lock.json", JSON.stringify({
-  packages: { "node_modules/@superblocksteam/cli": { version: "2.0.167-next.0" } }
+  packages: { "node_modules/@superblocksteam/cli": { version: "2.0.0-SNAPSHOT.test" } }
 }));
 `,
   );
@@ -81,7 +82,7 @@ fs.writeFileSync(root + "/package-lock.json", JSON.stringify({
   assert.equal(marketplace.name, "superblocks-dev");
   assert.equal(
     readDev("plugins/superblocks-plugin/package.json").dependencies["@superblocksteam/cli"],
-    "next",
+    "master",
   );
   assert.equal(plugin.version, marketplace.plugins[0].version);
   assert.notEqual(

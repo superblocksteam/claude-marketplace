@@ -17,7 +17,7 @@ const packagePath = `${root}/package.json`;
 const manifestPath = `${root}/.claude-plugin/plugin.json`;
 const marketplacePath = ".claude-plugin/marketplace.json";
 const packageJson = readJson(packagePath);
-packageJson.dependencies["@superblocksteam/cli"] = "next";
+packageJson.dependencies["@superblocksteam/cli"] = "master";
 writeJson(packagePath, packageJson);
 execFileSync(
   "npm",
@@ -32,7 +32,7 @@ execFileSync(
     "--no-fund",
     "--prefer-online",
     "--registry=https://registry.npmjs.org/",
-    "--@superblocksteam:registry=https://registry.npmjs.org/",
+    "--@superblocksteam:registry=https://npm.pkg.github.com/",
   ],
   { stdio: "inherit" },
 );
