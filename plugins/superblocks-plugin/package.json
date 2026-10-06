@@ -2,6 +2,6 @@
   "name": "superblocks-plugin",
   "private": true,
   "dependencies": {
-    "@superblocksteam/cli": "next"
+    "@superblocksteam/cli": "master"
   }
 }
