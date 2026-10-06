@@ -3,10 +3,23 @@
 Superblocks plugin marketplace for Claude
 
 The default marketplace uses the CLI's public `@beta` channel. The generated
-`master` branch uses public `@next` and is refreshed from the latest `main` on every
-push. Run the **Publish dev marketplace** workflow manually to pick up a new
+`master` branch uses `@master` from GitHub Packages and is refreshed from the
+latest `main` on every push. Run the **Publish dev marketplace** workflow manually to pick up a new
 CLI build between changes to `main`. Do not commit changes directly to `master`;
-the workflow replaces that branch.
+the workflow replaces that branch. Before enabling it, grant this repository
+read access to the CLI package under the package's **Manage Actions access**
+settings so its `GITHUB_TOKEN` can resolve `@master`.
+
+The dev CLI requires GitHub Packages access. Authenticate npm with your GitHub
+username and a classic personal access token with `read:packages` access to the
+Superblocks CLI package (authorize organization SSO if required):
+
+```sh
+npm login --scope=@superblocksteam --auth-type=legacy --registry=https://npm.pkg.github.com
+```
+
+Claude uses your npm user configuration for dependency installation; a plugin's
+`.npmrc` is not used.
 
 In Claude Code, add the dev marketplace and install its plugin:
 

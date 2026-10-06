@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 
 const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
 const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
@@ -17,24 +17,22 @@ const packagePath = `${root}/package.json`;
 const manifestPath = `${root}/.claude-plugin/plugin.json`;
 const marketplacePath = ".claude-plugin/marketplace.json";
 const packageJson = readJson(packagePath);
-packageJson.dependencies["@superblocksteam/cli"] = "next";
+packageJson.dependencies["@superblocksteam/cli"] = "master";
 writeJson(packagePath, packageJson);
+rmSync(`${root}/package-lock.json`);
 execFileSync(
   "npm",
   [
-    "update",
-    "@superblocksteam/cli",
-    "--prefix",
-    root,
+    "install",
     "--package-lock-only",
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
     "--prefer-online",
     "--registry=https://registry.npmjs.org/",
-    "--@superblocksteam:registry=https://registry.npmjs.org/",
+    "--@superblocksteam:registry=https://npm.pkg.github.com/",
   ],
-  { stdio: "inherit" },
+  { cwd: root, stdio: "inherit" },
 );
 const cliVersion = readJson(`${root}/package-lock.json`).packages[
   "node_modules/@superblocksteam/cli"
