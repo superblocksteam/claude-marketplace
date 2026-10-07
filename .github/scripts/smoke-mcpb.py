@@ -51,21 +51,28 @@ with tempfile.TemporaryDirectory(prefix="superblocks-mcpb-smoke-") as temporary:
     log_path = root / "stderr.log"
     started = time.monotonic()
     with log_path.open("w") as log:
-        process = subprocess.Popen(args, cwd=home, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True, bufsize=1)
+        process = subprocess.Popen(args, cwd=home, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, bufsize=0)
+        buffered = bytearray()
 
         def send(message):
-            process.stdin.write(json.dumps(message) + "\n")
+            process.stdin.write((json.dumps(message) + "\n").encode())
             process.stdin.flush()
 
         def receive(request_id):
             deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
-                ready, _, _ = select.select([process.stdout], [], [], max(0, deadline - time.monotonic()))
-                if not ready:
-                    break
-                line = process.stdout.readline()
-                if not line:
-                    raise RuntimeError("MCP process exited before replying: " + log_path.read_text()[-4000:])
+                if b"\n" not in buffered:
+                    ready, _, _ = select.select([process.stdout], [], [], max(0, deadline - time.monotonic()))
+                    if not ready:
+                        break
+                    chunk = os.read(process.stdout.fileno(), 65536)
+                    if not chunk:
+                        raise RuntimeError("MCP process exited before replying: " + log_path.read_text()[-4000:])
+                    buffered.extend(chunk)
+                    if b"\n" not in buffered:
+                        continue
+                line, _, remaining = buffered.partition(b"\n")
+                buffered[:] = remaining
                 message = json.loads(line)
                 if message.get("id") == request_id:
                     if "error" in message:

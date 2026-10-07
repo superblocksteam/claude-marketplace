@@ -41,7 +41,9 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
   const result = message.method === "initialize"
     ? { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "superblocks", version: "1.2.3" } }
     : { tools: [{ name: "login", inputSchema: { type: "object" } }] };
-  console.log(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+  const response = JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\\n";
+  const notification = JSON.stringify({ jsonrpc: "2.0", method: "notifications/message", params: { level: "info", data: "ready" } }) + "\\n";
+  process.stdout.write(message.method === "tools/list" ? notification + response : response);
 }).on("close", () => {
   if (!requests) console.log(JSON.stringify(record));
   process.exit(0);
