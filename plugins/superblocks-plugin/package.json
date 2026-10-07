@@ -1,0 +1,7 @@
+{
+  "name": "superblocks-plugin",
+  "private": true,
+  "dependencies": {
+    "@superblocksteam/cli": "2.0.166"
+  }
+}
