@@ -45,7 +45,7 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
     assert.equal(name in server.env, false, `.mcp.json must not set ${name}`);
   }
   assert.equal("userConfig" in manifest, false);
-  assert.match(setup, /Node\.js 24.*npm\s+10/is);
+  assert.match(setup, /Node\.js 24 or newer/i);
   assert.match(setup, /Which Superblocks server should the\s+plugin use\?/i);
   assert.match(
     setup,

@@ -1,47 +1,53 @@
 # claude-marketplace
 
-Superblocks plugin marketplace for Claude
+Superblocks plugin marketplace for Claude.
 
-The default marketplace uses the CLI's public `@beta` channel. The generated
-`master` branch uses `@master` from GitHub Packages and is refreshed from the
-latest `main` on every push. Run the **Publish dev marketplace** workflow manually to pick up a new
-CLI build between changes to `main`. Do not commit changes directly to `master`;
-the workflow replaces that branch. Before enabling it, grant this repository
-read access to the CLI package under the package's **Manage Actions access**
-settings so its `GITHUB_TOKEN` can resolve `@master`.
+## Cowork releases
 
-The dev CLI requires GitHub Packages access. Authenticate npm with your GitHub
-username and a classic personal access token with `read:packages` access to the
-Superblocks CLI package (authorize organization SSO if required):
+Run **Actions > Release Cowork plugin > Run workflow** from `main` to build
+with the latest public npm `@superblocksteam/cli@beta`. The workflow runs on
+the Namespace macOS profile and creates a draft prerelease with two assets:
 
-```sh
-npm login --scope=@superblocksteam --auth-type=legacy --registry=https://npm.pkg.github.com
-```
+- A Cowork plugin ZIP containing the MCPB and configure skill.
+- A standalone MCPB for Claude Desktop's local MCP extensions.
 
-Claude uses your npm user configuration for dependency installation; a plugin's
-`.npmrc` is not used.
+Publish the draft release when it is ready to share. Upload the ZIP under
+Cowork **Customize > Plugins**, enable one Superblocks plugin at a time, then
+start a new task and run `/configure`. Node.js 24 or newer is required;
+npm and saved credentials are not needed at MCP startup. Server settings in
+`~/.superblocks/plugin.json` still apply. CLI package overrides no longer
+select the executable; install a different bundle release to change versions.
 
-In Claude Code, add the dev marketplace and install its plugin:
+The filenames record the exact CLI version, operating system, and CPU
+architecture. Each workflow run has a unique release tag and does not replace
+existing assets. The runner's architecture determines the bundle architecture.
+The workflow uses public npm without package credentials; it never packages
+the private `@master` channel.
 
-```sh
-claude plugin marketplace add 'https://github.com/superblocksteam/claude-marketplace.git#master'
-claude plugin install superblocks@superblocks-dev
-claude plugin disable superblocks@superblocks
-```
+Before creating a release, the workflow extracts the actual MCPB and requires
+MCP initialization and the Login tool to work with an empty home directory and
+npm/npx blocked. It contacts no Superblocks account or production API.
+The CLI published on the beta tag must support startup before sign-in and
+expose Login; otherwise the workflow stops before creating a release.
 
-The marketplaces have distinct names so both can be registered. Enable one
-Superblocks plugin at a time. Re-enable `superblocks@superblocks` and disable
-`superblocks@superblocks-dev` to switch back to beta. Start a new session after
-switching. Cowork accepts repository URLs, but its `#ref` handling has not been
-verified yet.
+## Local development
 
-CLI versions come from each plugin's dependency and lockfile.
-`SUPERBLOCKS_CLI_PACKAGE` and `cliPackage` in `~/.superblocks/plugin.json` no
-longer select a CLI. Server settings in that file still apply.
-
-For local development, install the plugin's dependencies before launching it:
+Install the plugin's dependencies before launching it:
 
 ```sh
-npm ci --prefix plugins/superblocks-plugin --ignore-scripts
+npm ci --prefix plugins/superblocks-plugin --ignore-scripts --registry=https://registry.npmjs.org/ --@superblocksteam:registry=https://registry.npmjs.org/
 node --test tests/*.test.mjs
 ```
+
+To package a plugin directory that already has its CLI installed:
+
+```sh
+node .github/scripts/build-mcpb.mjs /path/to/installed/plugin /tmp/superblocks-mcpb
+python3 .github/scripts/smoke-mcpb.py /tmp/superblocks-mcpb/*.mcpb
+```
+
+Build on the operating system and CPU architecture that will run the artifact.
+The published CLI already bundles its SDK code. The archive includes those
+bundles, their external runtime dependencies, and the API SDK documentation
+read by MCP tools. Both archives are checked against a 5,000-entry and 200 MB
+budget. The pinned MCPB packaging tool is fetched at build time.
