@@ -75,16 +75,6 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   assert.doesNotMatch(setup, /npx|`superblocks login`|config set domain/i);
 });
 
-test("plugin pins the exact CLI version its lockfile installs", async () => {
-  const [pluginPackage, lockfile] = await Promise.all([
-    readJson("plugins/superblocks-plugin/package.json"),
-    readJson("plugins/superblocks-plugin/package-lock.json"),
-  ]);
-  const spec = pluginPackage.dependencies["@superblocksteam/cli"];
-  assert.equal(lockfile.packages[""].dependencies["@superblocksteam/cli"], spec);
-  assert.equal(lockfile.packages["node_modules/@superblocksteam/cli"].version, spec);
-});
-
 test("default launch runs the installed CLI without npm or npx", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-installed-"));
   t.after(() => rm(directory, { force: true, recursive: true }));

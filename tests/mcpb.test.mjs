@@ -86,14 +86,15 @@ process.on("SIGTERM", () => process.exit(0));
   const withoutPackageManagers = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
   const output = join(directory, "artifacts");
   const script = fileURLToPath(new URL("../.github/scripts/build-mcpb.mjs", import.meta.url));
-  const build = spawnSync(process.execPath, [script, plugin, output], {
+  const build = spawnSync(process.execPath, [script, plugin, output, "next"], {
     encoding: "utf8",
     env: withoutPackageManagers,
   });
   assert.equal(build.status, 0, build.stderr);
 
   const extracted = join(directory, "extracted");
-  const archive = join(output, `superblocks-1.2.3-${process.platform}-${process.arch}.zip`);
+  const stem = `superblocks-next-1.2.3-${process.platform}-${process.arch}`;
+  const archive = join(output, `${stem}.zip`);
   const { files, bundleFiles } = JSON.parse(
     execFileSync(
       "python3",
@@ -124,10 +125,12 @@ process.on("SIGTERM", () => process.exit(0));
   const manifest = JSON.parse(readFileSync(join(extracted, ".claude-plugin/plugin.json")));
   assert.equal(manifest.mcpServers, "./superblocks.mcpb");
   assert.equal(manifest.version, "1.2.3");
+  assert.equal(manifest.displayName, "Superblocks (next)");
   const runtime = join(extracted, "runtime");
   const bundle = JSON.parse(readFileSync(join(runtime, "manifest.json")));
   assert.equal(bundle.compatibility.runtimes.node, ">=24");
   assert.deepEqual(bundle.compatibility.platforms, [process.platform]);
+  assert.equal(bundle.display_name, "Superblocks (next)");
   const home = join(directory, "empty home");
   mkdirSync(home);
   const env = { ...withoutPackageManagers, HOME: home };
@@ -143,7 +146,7 @@ process.on("SIGTERM", () => process.exit(0));
   });
 
   const smokeScript = fileURLToPath(new URL("../.github/scripts/smoke-mcpb.py", import.meta.url));
-  const bundlePath = join(output, `superblocks-1.2.3-${process.platform}-${process.arch}.mcpb`);
+  const bundlePath = join(output, `${stem}.mcpb`);
   const smoke = spawnSync("python3", [smokeScript, bundlePath], { encoding: "utf8" });
   assert.equal(smoke.status, 0, smoke.stderr);
   assert.equal(JSON.parse(smoke.stdout).loginAvailable, true);
@@ -170,9 +173,23 @@ process.on("SIGTERM", () => process.exit(0));
   assert.match(missing.stderr, /Superblocks CLI is not installed/);
 
   writeFileSync(join(cli, "package.json"), JSON.stringify({ version: "../../escape" }));
-  const invalid = spawnSync(process.execPath, [script, plugin, join(directory, "invalid")], {
-    encoding: "utf8",
-  });
+  const unknownChannel = spawnSync(
+    process.execPath,
+    [script, plugin, join(directory, "unknown"), "prod"],
+    {
+      encoding: "utf8",
+    },
+  );
+  assert.notEqual(unknownChannel.status, 0);
+  assert.match(unknownChannel.stderr, /Unknown channel "prod"/);
+
+  const invalid = spawnSync(
+    process.execPath,
+    [script, plugin, join(directory, "invalid"), "next"],
+    {
+      encoding: "utf8",
+    },
+  );
   assert.notEqual(invalid.status, 0);
   assert.match(invalid.stderr, /CLI version contains unsafe filename characters/);
 
@@ -180,7 +197,7 @@ process.on("SIGTERM", () => process.exit(0));
   const outside = join(directory, "unrelated-private-file");
   writeFileSync(outside, "must-not-ship");
   symlinkSync(outside, join(dependency, "outside-link"));
-  const linked = spawnSync(process.execPath, [script, plugin, join(directory, "linked")], {
+  const linked = spawnSync(process.execPath, [script, plugin, join(directory, "linked"), "next"], {
     encoding: "utf8",
   });
   assert.notEqual(linked.status, 0);
@@ -190,7 +207,7 @@ process.on("SIGTERM", () => process.exit(0));
   symlinkSync(outside, join(plugin, "skills/configure/outside-link.md"));
   const linkedSkill = spawnSync(
     process.execPath,
-    [script, plugin, join(directory, "linked-skill")],
+    [script, plugin, join(directory, "linked-skill"), "next"],
     {
       encoding: "utf8",
     },

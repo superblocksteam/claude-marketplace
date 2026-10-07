@@ -16,6 +16,8 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 
 import { packExtension } from "@anthropic-ai/mcpb/cli";
 
+import { Channel } from "./channels.mjs";
+
 function copyRuntimeDependencies(dependencies, destination) {
   const cli = join(dependencies, "@superblocksteam/cli");
   const pending = [cli];
@@ -68,11 +70,14 @@ function copyRuntimeDependencies(dependencies, destination) {
   }
 }
 
-if (process.argv.length !== 4) {
-  throw new Error("Usage: node build-mcpb.mjs <installed-plugin-directory> <output-directory>");
+if (process.argv.length !== 5) {
+  throw new Error(
+    "Usage: node build-mcpb.mjs <installed-plugin-directory> <output-directory> <channel>",
+  );
 }
 const plugin = resolve(process.argv[2]);
 const output = resolve(process.argv[3]);
+const channel = Channel.named(process.argv[4]);
 const cliRoot = join(plugin, "node_modules/@superblocksteam/cli");
 if (!existsSync(join(cliRoot, "bin/run.js"))) {
   throw new Error("Install the plugin's CLI dependency before building its MCPB.");
@@ -82,7 +87,8 @@ if (typeof cli.version !== "string" || !/^[0-9][0-9A-Za-z.+-]*$/.test(cli.versio
   throw new Error("CLI version contains unsafe filename characters.");
 }
 const pluginManifest = JSON.parse(readFileSync(join(plugin, ".claude-plugin/plugin.json"), "utf8"));
-const stem = `superblocks-${cli.version}-${process.platform}-${process.arch}`;
+const displayName = channel.displayName(pluginManifest.displayName);
+const stem = `superblocks-${channel.name}-${cli.version}-${process.platform}-${process.arch}`;
 const bundlePath = join(output, `${stem}.mcpb`);
 const zipPath = join(output, `${stem}.zip`);
 if (existsSync(bundlePath) || existsSync(zipPath))
@@ -99,7 +105,7 @@ try {
   const manifest = {
     manifest_version: "0.3",
     name: pluginManifest.name,
-    display_name: pluginManifest.displayName,
+    display_name: displayName,
     version: cli.version,
     description: "Build, import, and manage Superblocks applications with browser sign-in.",
     author: pluginManifest.author,
@@ -123,7 +129,7 @@ try {
   mkdirSync(join(cowork, ".claude-plugin"), { recursive: true });
   writeFileSync(
     join(cowork, ".claude-plugin/plugin.json"),
-    `${JSON.stringify({ ...pluginManifest, version: cli.version, description: manifest.description, mcpServers: "./superblocks.mcpb" }, null, 2)}\n`,
+    `${JSON.stringify({ ...pluginManifest, displayName, version: cli.version, description: manifest.description, mcpServers: "./superblocks.mcpb" }, null, 2)}\n`,
   );
   cpSync(join(plugin, "skills"), join(cowork, "skills"), { recursive: true });
   cpSync(bundlePath, join(cowork, "superblocks.mcpb"), { mode: constants.COPYFILE_FICLONE });
