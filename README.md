@@ -5,9 +5,9 @@ Superblocks plugin marketplace for Claude.
 ## Cowork releases
 
 Run **Actions > Release Cowork plugin > Run workflow** from `main` to build
-with the CLI version pinned in `plugins/superblocks-plugin/package-lock.json`.
-The workflow runs on the Namespace macOS profile and creates a draft
-prerelease with two assets:
+with the exact CLI version pinned in `plugins/superblocks-plugin/package.json`
+and its lockfile. The workflow runs on the Namespace macOS profile and creates
+a draft prerelease with two assets:
 
 - A Cowork plugin ZIP containing the MCPB and configure skill.
 - A standalone MCPB for Claude Desktop's local MCP extensions.
@@ -34,19 +34,19 @@ npm/npx blocked. It contacts no Superblocks account or production API.
 The locked CLI must support startup before sign-in and expose Login;
 otherwise the workflow stops before creating a release.
 
-### Promote a newer beta CLI
+### Promote a newer CLI
 
-Refresh the lock to the current public `beta` tag, then open a pull request
-with the lockfile change and a matching plugin `version` bump in
+Pin the public npm tag or version to ship, then open a pull request with the
+`package.json` and lockfile change and a matching plugin `version` bump in
 `.claude-plugin/marketplace.json` and the plugin manifest:
 
 ```sh
-npm update @superblocksteam/cli --prefix plugins/superblocks-plugin --package-lock-only --ignore-scripts --registry=https://registry.npmjs.org/ --@superblocksteam:registry=https://registry.npmjs.org/
+npm install @superblocksteam/cli@beta --save-exact --prefix plugins/superblocks-plugin --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/ --@superblocksteam:registry=https://registry.npmjs.org/
 ```
 
-A moved `beta` tag changes nothing until that pull request merges; the
-marketplace plugin and the next Cowork release both install the reviewed
-lockfile.
+Replace `beta` with another public tag or an exact version as needed. A moved
+tag changes nothing until that pull request merges; the marketplace plugin and
+the next Cowork release both install the reviewed pin.
 
 ## Local development
 
