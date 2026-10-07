@@ -94,8 +94,9 @@ test("default launch runs the installed CLI without npm or npx", async (t) => {
   delete env.SUPERBLOCKS_CLI_PACKAGE;
   delete env.SUPERBLOCKS_MCP_BROWSER_LOGIN;
   delete env.SUPERBLOCKS_SERVER_URL;
-  const { stdout } = await execFile(process.execPath, [launcher], { cwd: tmpdir(), env });
+  const { stdout, stderr } = await execFile(process.execPath, [launcher], { cwd: tmpdir(), env });
   assert.deepEqual(JSON.parse(stdout), { args: ["mcp", "serve"], browserLogin: "true" });
+  assert.doesNotMatch(stderr, /Ignoring/);
 });
 
 test("marketplace dependency takes precedence over legacy package overrides", async (t) => {
@@ -105,6 +106,24 @@ test("marketplace dependency takes precedence over legacy package overrides", as
     directory,
     "console.log(JSON.stringify(process.argv.slice(2)));\n",
   );
+  const npx = join(directory, "npx");
+  await writeFile(npx, '#!/usr/bin/env node\nthrow new Error("package manager must not run");\n');
+  await chmod(npx, 0o755);
+  const launch = (settings) =>
+    execFile(process.execPath, [launcher], {
+      env: {
+        ...process.env,
+        HOME: directory,
+        PATH: `${directory}:${process.env.PATH}`,
+        ...settings,
+      },
+    });
+  const legacyWarning = /Ignoring SUPERBLOCKS_CLI_PACKAGE and cliPackage[\s\S]*installed CLI/;
+
+  const fromEnvironment = await launch({ SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@master" });
+  assert.deepEqual(JSON.parse(fromEnvironment.stdout), ["mcp", "serve"]);
+  assert.match(fromEnvironment.stderr, legacyWarning);
+
   await mkdir(join(directory, ".superblocks"));
   await writeFile(
     join(directory, ".superblocks", "plugin.json"),
@@ -113,18 +132,32 @@ test("marketplace dependency takes precedence over legacy package overrides", as
       serverUrl: "https://acme.superblocks.com",
     }),
   );
-  const npx = join(directory, "npx");
-  await writeFile(npx, '#!/usr/bin/env node\nthrow new Error("package manager must not run");\n');
-  await chmod(npx, 0o755);
-  const { stdout } = await execFile(process.execPath, [launcher], {
-    env: {
-      ...process.env,
-      HOME: directory,
-      PATH: `${directory}:${process.env.PATH}`,
-      SUPERBLOCKS_CLI_PACKAGE: "@superblocksteam/cli@master",
-    },
+  const fromSettings = await launch({ SUPERBLOCKS_CLI_PACKAGE: "" });
+  assert.deepEqual(JSON.parse(fromSettings.stdout), ["mcp", "serve"]);
+  assert.match(fromSettings.stderr, legacyWarning);
+
+  await writeFile(join(directory, ".superblocks", "plugin.json"), "not json");
+  const unreadableSettings = await launch({ SUPERBLOCKS_CLI_PACKAGE: "" });
+  assert.deepEqual(JSON.parse(unreadableSettings.stdout), ["mcp", "serve"]);
+  assert.doesNotMatch(unreadableSettings.stderr, legacyWarning);
+});
+
+test("MCP launch explains a missing CLI install instead of a module error", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "superblocks-plugin-missing-cli-"));
+  t.after(() => rm(directory, { force: true, recursive: true }));
+  const launcher = await installedPlugin(directory, 'console.log("CLI started");\n');
+  await rm(join(directory, "plugin with spaces", "node_modules"), { recursive: true });
+  const launch = execFile(process.execPath, [launcher], {
+    env: { ...process.env, HOME: directory, SUPERBLOCKS_CLI_PACKAGE: "" },
   });
-  assert.deepEqual(JSON.parse(stdout), ["mcp", "serve"]);
+  await assert.rejects(launch, (error) => {
+    assert.match(
+      error.stderr,
+      /Superblocks CLI is not installed[\s\S]*Reinstall the Superblocks plugin/,
+    );
+    assert.doesNotMatch(error.stderr, /MODULE_NOT_FOUND/);
+    return true;
+  });
 });
 
 test(
@@ -141,7 +174,7 @@ process.on("SIGTERM", () => {
   writeFileSync(process.env.TEST_SIGNAL_FILE, "SIGTERM");
   process.exit(0);
 });
-console.log(process.pid);
+console.log(String(process.pid));
 setInterval(() => {}, 1_000);
 `,
     );

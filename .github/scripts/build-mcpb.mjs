@@ -1,12 +1,10 @@
 import { execFileSync } from "node:child_process";
 import {
-  closeSync,
   constants,
   cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
-  openSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -15,6 +13,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
+
+import { packExtension } from "@anthropic-ai/mcpb/cli";
 
 function copyRuntimeDependencies(dependencies, destination) {
   const cli = join(dependencies, "@superblocksteam/cli");
@@ -92,7 +92,6 @@ const bundle = join(directory, "bundle");
 const cowork = join(directory, "cowork");
 mkdirSync(output, { recursive: true });
 mkdirSync(join(bundle, "scripts"), { recursive: true });
-const log = openSync(join(output, `${stem}.build.log`), "w");
 try {
   cpSync(join(plugin, "scripts/launch-mcp.mjs"), join(bundle, "scripts/launch-mcp.mjs"));
   const dependencies = realpathSync(join(plugin, "node_modules"));
@@ -118,18 +117,9 @@ try {
     },
   };
   writeFileSync(join(bundle, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-  execFileSync(
-    "npx",
-    [
-      "--yes",
-      "--registry=https://registry.npmjs.org/",
-      "@anthropic-ai/mcpb@2.1.2",
-      "pack",
-      bundle,
-      bundlePath,
-    ],
-    { stdio: ["ignore", log, log] },
-  );
+  if (!(await packExtension({ extensionPath: bundle, outputPath: bundlePath, silent: false }))) {
+    throw new Error("MCPB packing failed; see the packer output above.");
+  }
   mkdirSync(join(cowork, ".claude-plugin"), { recursive: true });
   writeFileSync(
     join(cowork, ".claude-plugin/plugin.json"),
@@ -168,6 +158,5 @@ with zipfile.ZipFile(sys.argv[2], 'x', compression=zipfile.ZIP_DEFLATED) as arch
   console.log(bundlePath);
   console.log(zipPath);
 } finally {
-  closeSync(log);
   rmSync(directory, { recursive: true, force: true });
 }

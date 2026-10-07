@@ -15,7 +15,9 @@ import { basename, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-test("the Cowork archive starts its bundled MCP dependency without a package manager", (t) => {
+import { packExtension } from "@anthropic-ai/mcpb/cli";
+
+test("the Cowork archive starts its bundled MCP dependency without a package manager", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "superblocks-mcpb-"));
   t.after(() => rmSync(directory, { force: true, recursive: true }));
   const plugin = join(directory, "installed plugin");
@@ -72,9 +74,22 @@ process.on("SIGTERM", () => process.exit(0));
   for (let index = 0; index < 5001; index++) {
     writeFileSync(join(unused, `${index}.js`), "");
   }
+  const bin = join(directory, "bin");
+  mkdirSync(bin);
+  for (const name of ["npm", "npx"]) {
+    writeFileSync(
+      join(bin, name),
+      '#!/usr/bin/env node\nthrow new Error("packaging and startup must not install");\n',
+    );
+    chmodSync(join(bin, name), 0o755);
+  }
+  const withoutPackageManagers = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
   const output = join(directory, "artifacts");
   const script = fileURLToPath(new URL("../.github/scripts/build-mcpb.mjs", import.meta.url));
-  const build = spawnSync(process.execPath, [script, plugin, output], { encoding: "utf8" });
+  const build = spawnSync(process.execPath, [script, plugin, output], {
+    encoding: "utf8",
+    env: withoutPackageManagers,
+  });
   assert.equal(build.status, 0, build.stderr);
 
   const extracted = join(directory, "extracted");
@@ -113,18 +128,9 @@ process.on("SIGTERM", () => process.exit(0));
   const bundle = JSON.parse(readFileSync(join(runtime, "manifest.json")));
   assert.equal(bundle.compatibility.runtimes.node, ">=24");
   assert.deepEqual(bundle.compatibility.platforms, [process.platform]);
-  const bin = join(directory, "bin");
-  mkdirSync(bin);
-  for (const name of ["npm", "npx"]) {
-    writeFileSync(
-      join(bin, name),
-      '#!/usr/bin/env node\nthrow new Error("startup must not install");\n',
-    );
-    chmodSync(join(bin, name), 0o755);
-  }
   const home = join(directory, "empty home");
   mkdirSync(home);
-  const env = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` };
+  const env = { ...withoutPackageManagers, HOME: home };
   delete env.SUPERBLOCKS_MCP_BROWSER_LOGIN;
   delete env.SUPERBLOCKS_SERVER_URL;
   const args = bundle.server.mcp_config.args.map((arg) => arg.replaceAll("${__dirname}", runtime));
@@ -150,17 +156,8 @@ process.on("SIGTERM", () => process.exit(0));
     readFileSync(entryPoint, "utf8").replace('name: "login"', 'name: "unavailable"'),
   );
   const brokenBundle = join(directory, "broken.mcpb");
-  execFileSync(
-    "npx",
-    [
-      "--yes",
-      "--registry=https://registry.npmjs.org/",
-      "@anthropic-ai/mcpb@2.1.2",
-      "pack",
-      runtime,
-      brokenBundle,
-    ],
-    { stdio: "ignore" },
+  assert.ok(
+    await packExtension({ extensionPath: runtime, outputPath: brokenBundle, silent: true }),
   );
   const brokenSmoke = spawnSync("python3", [smokeScript, brokenBundle], { encoding: "utf8" });
   assert.notEqual(brokenSmoke.status, 0);
@@ -170,7 +167,7 @@ process.on("SIGTERM", () => process.exit(0));
   rmSync(join(runtime, "node_modules/@superblocksteam/cli/bin/run.js"));
   const missing = spawnSync(process.execPath, args, { encoding: "utf8", cwd: home, env });
   assert.notEqual(missing.status, 0);
-  assert.match(missing.stderr, /MODULE_NOT_FOUND/);
+  assert.match(missing.stderr, /Superblocks CLI is not installed/);
 
   writeFileSync(join(cli, "package.json"), JSON.stringify({ version: "../../escape" }));
   const invalid = spawnSync(process.execPath, [script, plugin, join(directory, "invalid")], {
