@@ -1,0 +1,65 @@
+name: Channel
+"on":
+  workflow_call:
+    inputs:
+      channel:
+        type: string
+        required: true
+      runner:
+        type: string
+        default: ubuntu-latest
+      upload:
+        type: boolean
+        default: false
+    secrets:
+      github-packages-token:
+        required: false
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      MARKETPLACE: ${{ github.workspace }}/channel-marketplace
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: "false"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Install locked packaging tools
+        run: npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/
+      - name: Test plugin, channels, and packaging
+        run: node --test tests/*.test.mjs
+      - name: Write the channel marketplace
+        run: node .github/scripts/channel.mjs marketplace "$CHANNEL" "$MARKETPLACE" "$GITHUB_SHA"
+      - name: Install the channel's locked CLI
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.github-packages-token }}
+        run: |
+          if [[ -n "${NODE_AUTH_TOKEN}" ]]; then
+            printf '%s\n' "//npm.pkg.github.com/:_authToken=\${NODE_AUTH_TOKEN}" > "${RUNNER_TEMP}/channel.npmrc"
+            export NPM_CONFIG_USERCONFIG="${RUNNER_TEMP}/channel.npmrc"
+          fi
+          node .github/scripts/channel.mjs install "$CHANNEL" "$MARKETPLACE/plugins/superblocks-plugin"
+      - name: Build Cowork ZIP and standalone MCPB
+        run: node .github/scripts/build-mcpb.mjs "$MARKETPLACE/plugins/superblocks-plugin" dist "$CHANNEL"
+      - name: Require credentialless startup and Login
+        run: python3 .github/scripts/smoke-mcpb.py dist/*.mcpb
+      - name: Refuse public artifacts for private channels
+        if: inputs.upload
+        run: node .github/scripts/channel.mjs assert-public "$CHANNEL"
+      - if: inputs.upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cowork-${{ inputs.channel }}
+          path: |-
+            dist/*.zip
+            dist/*.mcpb
+          if-no-files-found: error
+          retention-days: 1
