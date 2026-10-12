@@ -1,0 +1,12 @@
+{
+  "name": "superblocks",
+  "displayName": "Superblocks (next)",
+  "description": "Build, import, and manage Superblocks applications from Claude. Browser sign-in opens automatically.",
+  "author": {
+    "name": "Superblocks",
+    "url": "https://www.superblocks.com"
+  },
+  "homepage": "https://www.superblocks.com",
+  "skills": "./skills/",
+  "version": "0.0.0-next.gd36401da3755.cli-2.0.169-next.2"
+}
