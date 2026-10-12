@@ -1,6 +1,6 @@
 {
   "name": "superblocks",
-  "displayName": "Superblocks",
+  "displayName": "Superblocks (dev)",
   "description": "Build, import, and manage Superblocks applications from Claude. Browser sign-in opens automatically.",
   "author": {
     "name": "Superblocks",
@@ -8,5 +8,5 @@
   },
   "homepage": "https://www.superblocks.com",
   "skills": "./skills/",
-  "version": "0.0.0-dev.g82972b431c62.cli-2.0.0-SNAPSHOT.c2ddc1dae3d13e07"
+  "version": "0.0.0-dev.gd36401da3755.cli-2.0.0-SNAPSHOT.9503ca5d334b83ae"
 }

@@ -5,8 +5,7 @@ description: Configure browser sign-in and MCP settings for the Superblocks plug
 
 # Configure Superblocks
 
-Confirm that the computer running Claude Desktop has Node.js 24 or newer and npm
-10 or newer.
+Confirm that the computer running Claude Desktop has Node.js 24 or newer.
 
 The plugin defaults to `https://app.superblocks.com`. It does not open a browser
 at startup. Call **Login** before the first account-dependent tool when no
@@ -38,10 +37,10 @@ the tool will not switch servers; a chat reply cannot replace this confirmation.
 Report `set_server`'s sign-in status from its result. A successful `whoami`
 does not show whether browser sign-in happened during the server change.
 
-The plugin runs its installed CLI dependency. Its lockfile selects the CLI
-version installed with each plugin release. Choose a different marketplace
-branch to use another release channel; see the marketplace README for setup.
-Legacy package override settings no longer select the CLI.
+The plugin runs its installed CLI dependency. Its lockfile or the MCP bundle
+included in the release archive selects the CLI version. Install the matching
+plugin release to change versions. Legacy package override settings no longer
+select the CLI.
 
 Every new task starts on the saved `serverUrl`. Users can also edit
 `serverUrl` in that file by hand, for example

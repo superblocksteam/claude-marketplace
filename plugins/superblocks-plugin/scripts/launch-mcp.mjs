@@ -1,4 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const TRUE_VALUES = ["true", "1", "yes", "y"];
@@ -7,6 +10,24 @@ const FALSE_VALUES = ["false", "0", "no", "n"];
 function fail(message) {
   console.error(message);
   process.exit(1);
+}
+
+function hasLegacyPackagePin() {
+  try {
+    const settings = readFileSync(join(homedir(), ".superblocks", "plugin.json"), "utf8");
+    return "cliPackage" in JSON.parse(settings);
+  } catch {
+    return false;
+  }
+}
+
+function warnAboutLegacyPackageOverrides() {
+  if (process.env.SUPERBLOCKS_CLI_PACKAGE?.trim() || hasLegacyPackagePin()) {
+    console.error(
+      "Ignoring SUPERBLOCKS_CLI_PACKAGE and cliPackage in ~/.superblocks/plugin.json: " +
+        "the plugin runs its installed CLI. Install another plugin release to change CLI versions.",
+    );
+  }
 }
 
 function readBrowserLogin() {
@@ -42,12 +63,11 @@ if (browserLogin === "false" && serverUrl) {
   fail("Remove SUPERBLOCKS_SERVER_URL when SUPERBLOCKS_MCP_BROWSER_LOGIN is false.");
 }
 
+const cliEntryPoint = fileURLToPath(
+  new URL("../node_modules/@superblocksteam/cli/bin/run.js", import.meta.url),
+);
 const command = process.execPath;
-const args = [
-  fileURLToPath(new URL("../node_modules/@superblocksteam/cli/bin/run.js", import.meta.url)),
-  "mcp",
-  "serve",
-];
+const args = [cliEntryPoint, "mcp", "serve"];
 const env = {
   ...Object.fromEntries(
     Object.entries(process.env).filter(
@@ -60,6 +80,13 @@ const env = {
 if (Number(process.versions.node.split(".")[0]) < 24) {
   fail("Node.js 24 or newer is required to run Superblocks MCP.");
 }
+if (!existsSync(cliEntryPoint)) {
+  fail(
+    `Superblocks CLI is not installed at ${cliEntryPoint}. Reinstall the Superblocks plugin, ` +
+      "or run npm ci in the plugin directory of a local checkout.",
+  );
+}
+warnAboutLegacyPackageOverrides();
 console.error("Superblocks MCP CLI: installed plugin dependency.");
 if (process.platform !== "win32" && typeof process.execve === "function") {
   try {
