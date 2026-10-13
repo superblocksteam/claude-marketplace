@@ -33,6 +33,12 @@ test("dev updates open one exact-pin PR without modifying a checkout or leaking 
   git(checkout, "remote", "add", "origin", origin);
   mkdirSync(join(checkout, "channels/dev"), { recursive: true });
   mkdirSync(bin);
+  writeFileSync(join(checkout, "README.md"), "tracked source\n");
+  git(checkout, "add", "README.md");
+  writeFileSync(
+    join(checkout, "channels/dev/.npmrc"),
+    "https-proxy=https://untrusted.invalid/\nstrict-ssl=false\n",
+  );
   const pin = (version) => {
     writeFileSync(
       join(checkout, "channels/dev/package.json"),
@@ -71,7 +77,7 @@ test("dev updates open one exact-pin PR without modifying a checkout or leaking 
   });
   const common = String.raw`
 import assert from "node:assert/strict";
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 const state = JSON.parse(readFileSync(process.env.DEV_UPDATE_STATE, "utf8"));
 const log = (extra = {}) => appendFileSync(process.env.DEV_UPDATE_CALLS, JSON.stringify({
@@ -85,6 +91,10 @@ ${common}
 log({
   githubToken: process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN,
   npmrc: readFileSync(process.env.NPM_CONFIG_USERCONFIG, "utf8"),
+  projectNpmrc: existsSync(".npmrc"),
+  proxy: process.env.npm_config_proxy,
+  httpsProxy: process.env.npm_config_https_proxy,
+  strictSsl: process.env.npm_config_strict_ssl,
 });
 if (args[0] === "view") {
   assert.deepEqual(args, [
@@ -95,6 +105,11 @@ if (args[0] === "view") {
   console.log(state.rawVersion ?? JSON.stringify(state.version));
 }
 else if (args[0] === "install") {
+  assert.deepEqual(args, [
+    "install", "@superblocksteam/cli@" + state.version, "--save-exact", "--package-lock-only",
+    "--ignore-scripts", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org/",
+    "--@superblocksteam:registry=https://npm.pkg.github.com/",
+  ]);
   if (state.failPin) process.exit(1);
   const version = args[1].slice("@superblocksteam/cli@".length);
   for (const file of ["package.json", "package-lock.json"]) {
@@ -172,6 +187,7 @@ else if (args[1] === "create") {
   );
   const install = calls().find((call) => call.args[0] === "install");
   assert.equal(install.args[1], "@superblocksteam/cli@1.0.1");
+  assert.equal(install.projectNpmrc, false);
   assert.ok(install.args.includes("--ignore-scripts"));
   assert.ok(
     calls()
@@ -181,6 +197,10 @@ else if (args[1] === "create") {
   for (const call of calls().filter((call) => call.command === "npm")) {
     assert.equal(call.githubToken, undefined);
     assert.equal(call.npmrc, "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n");
+    assert.equal(call.projectNpmrc, false);
+    assert.equal(call.proxy, "null");
+    assert.equal(call.httpsProxy, "null");
+    assert.equal(call.strictSsl, "true");
   }
   const created = calls().find((call) => call.args[1] === "create");
   assert.ok(created.args.includes("--draft"));
@@ -310,6 +330,18 @@ else if (args[1] === "create") {
     "retry must reuse a pushed branch",
   );
 
+  writeFileSync(join(checkout, "README.md"), "main advanced\n");
+  git(checkout, "add", "README.md");
+  git(checkout, ...identity, "commit", "--quiet", "-m", "advance main");
+  git(checkout, "push", "--quiet", "origin", "main");
+  state({ version: "1.0.3" });
+  assert.match(update.open(), /\/pull\/123$/);
+  const refreshed = git(origin, "rev-parse", branch("1.0.3"));
+  assert.notEqual(refreshed, orphan);
+  git(origin, "merge-base", "--is-ancestor", orphan, refreshed);
+  assert.equal(git(origin, "show", `${refreshed}:README.md`), "main advanced");
+  console.log("Dev pin stale recovery refreshed:", JSON.stringify({ previous: orphan, refreshed }));
+
   const attacker = join(directory, "attacker");
   git(directory, "clone", "--quiet", "--branch", branch("1.0.3"), origin, attacker);
   const lockPath = join(attacker, "channels/dev/package-lock.json");
@@ -325,18 +357,24 @@ else if (args[1] === "create") {
     git(attacker, "push", "--quiet", "origin", `HEAD:refs/heads/${branch("1.0.3")}`);
     state({ version: "1.0.3" });
     writeFileSync(callsFile, "");
-    assert.throws(
-      () => update.open(),
-      (error) => {
-        assert.match(
-          error.message,
-          /Recovered branch .* does not match freshly resolved dev pin files/,
-        );
-        console.log("Dev pin recovery rejected:", error.message);
-        return true;
-      },
+    const previous = git(origin, "rev-parse", branch("1.0.3"));
+    assert.match(update.open(), /\/pull\/123$/);
+    const recovered = git(origin, "rev-parse", branch("1.0.3"));
+    assert.notEqual(recovered, previous);
+    git(origin, "merge-base", "--is-ancestor", previous, recovered);
+    const entry = JSON.parse(git(origin, "show", `${recovered}:channels/dev/package-lock.json`))
+      .packages["node_modules/@superblocksteam/cli"];
+    assert.equal(entry.resolved, "https://npm.pkg.github.com/@superblocksteam/cli/-/cli-1.0.3.tgz");
+    assert.equal(entry.integrity, "sha512-registry-fixture");
+    assert.deepEqual(git(origin, "diff", "--name-only", "main", recovered).split("\n"), [
+      "channels/dev/package-lock.json",
+      "channels/dev/package.json",
+    ]);
+    console.log(
+      "Dev pin untrusted recovery replaced:",
+      JSON.stringify({ resolved: entry.resolved, integrity: entry.integrity }),
     );
-    assert.equal(calls().filter((call) => call.args[1] === "create").length, 0);
+    git(attacker, "pull", "--quiet", "--ff-only");
   };
   pushAttack();
   writeFileSync(lockPath, legitimateLock);

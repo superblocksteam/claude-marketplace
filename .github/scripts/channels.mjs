@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -118,6 +118,9 @@ export class DevPinUpdate {
     const channel = Channel.named("dev");
     const workspace = mkdtempSync(join(tmpdir(), "superblocks-dev-pin-"));
     const checkout = join(workspace, "checkout");
+    const npmRoot = join(workspace, "npm");
+    const npmDirectory = channel.pinDirectory(npmRoot);
+    const files = PIN_FILES.map((file) => join(channel.pin, file));
     const git = (...args) =>
       execFileSync(
         "git",
@@ -130,6 +133,14 @@ export class DevPinUpdate {
       ).trim();
     const gh = (...args) => execFileSync("gh", args, { encoding: "utf8" }).trim();
     const npmEnv = { ...process.env };
+    for (const [name, value] of Object.entries({
+      proxy: "null",
+      https_proxy: "null",
+      strict_ssl: "true",
+    })) {
+      npmEnv[`npm_config_${name}`] = value;
+      npmEnv[`NPM_CONFIG_${name.toUpperCase()}`] = value;
+    }
     for (const name of [
       "GH_TOKEN",
       "GITHUB_TOKEN",
@@ -139,6 +150,7 @@ export class DevPinUpdate {
       delete npmEnv[name];
     }
     try {
+      mkdirSync(npmDirectory, { recursive: true });
       if (npmEnv.NODE_AUTH_TOKEN) {
         const npmrc = join(workspace, "npmrc");
         writeFileSync(npmrc, "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n", {
@@ -157,7 +169,7 @@ export class DevPinUpdate {
           "--prefer-online",
           ...channel.npmArgs(),
         ],
-        { encoding: "utf8", env: npmEnv },
+        { cwd: npmDirectory, encoding: "utf8", env: npmEnv },
       );
       let version;
       try {
@@ -174,6 +186,7 @@ export class DevPinUpdate {
         [
           "clone",
           "--quiet",
+          "--no-checkout",
           "--depth=1",
           "--single-branch",
           "--branch=main",
@@ -182,7 +195,11 @@ export class DevPinUpdate {
         ],
         { stdio: "inherit" },
       );
-      const previous = channel.cliVersion(checkout);
+      git("read-tree", "HEAD");
+      for (const file of files) {
+        writeJson(join(npmRoot, file), JSON.parse(git("show", `HEAD:${file}`)));
+      }
+      const previous = channel.cliVersion(npmRoot);
       if (previous === version) return `dev already pins ${version}; no PR needed.`;
       const branch = `automation/dev-cli-${version}-pin`;
       git("check-ref-format", "--branch", branch);
@@ -211,17 +228,20 @@ export class DevPinUpdate {
         console.log(`Reusing open PR for CLI ${version}: ${open.url}.`);
         return open.url;
       }
-      channel.pinTo(checkout, version, npmEnv);
-      const manifest = readJson(join(channel.pinDirectory(checkout), "package.json"));
-      const lockfile = readJson(join(channel.pinDirectory(checkout), "package-lock.json"));
+      channel.pinTo(npmRoot, version, npmEnv);
+      const manifest = readJson(join(npmDirectory, "package.json"));
+      const lockfile = readJson(join(npmDirectory, "package-lock.json"));
       if (
-        channel.cliVersion(checkout) !== version ||
+        channel.cliVersion(npmRoot) !== version ||
         manifest.dependencies["@superblocksteam/cli"] !== version ||
         lockfile.packages[""].dependencies["@superblocksteam/cli"] !== version
       ) {
         throw new Error(`Dev pin does not match the requested CLI ${version}.`);
       }
-      const files = PIN_FILES.map((file) => join(channel.pin, file));
+      for (const file of files) {
+        const blob = git("hash-object", "-w", "--no-filters", join(npmRoot, file));
+        git("update-index", "--add", "--cacheinfo", `100644,${blob},${file}`);
+      }
       let commit;
       if (git("ls-remote", "--heads", "origin", `refs/heads/${branch}`)) {
         console.log(`Validating ${branch} against freshly resolved dev pins.`);
@@ -232,16 +252,25 @@ export class DevPinUpdate {
           files.some(
             (file) =>
               git("show", `FETCH_HEAD:${file}`) !==
-              readFileSync(join(checkout, file), "utf8").trim(),
+              readFileSync(join(npmRoot, file), "utf8").trim(),
           )
         ) {
-          throw new Error(
-            `Recovered branch ${branch} does not match freshly resolved dev pin files.`,
+          commit = git(
+            "commit-tree",
+            git("write-tree"),
+            "-p",
+            git("rev-parse", "HEAD"),
+            "-p",
+            git("rev-parse", "FETCH_HEAD"),
+            "-m",
+            `chore(plugin): refresh dev CLI ${version}`,
           );
+          git("push", "--quiet", "origin", `${commit}:refs/heads/${branch}`);
+          console.log(`Refreshed ${branch} at ${commit} from latest main and registry pins.`);
+        } else {
+          commit = git("rev-parse", "FETCH_HEAD");
         }
-        commit = git("rev-parse", "FETCH_HEAD");
       } else {
-        git("add", "--", ...files);
         git("commit", "--quiet", "-m", `chore(plugin): pin dev CLI ${version}`);
         git("push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
         commit = git("rev-parse", "HEAD");
