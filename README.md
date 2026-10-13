@@ -37,6 +37,24 @@ with the change; for `beta`, also bump the plugin `version` in
 `.claude-plugin/marketplace.json` and the plugin manifest. The `next` and `dev`
 branches derive their versions from the source commit and CLI version.
 
+To open a draft PR for the latest `@master` automatically:
+
+```sh
+npm run update:dev
+```
+
+The command requires Node.js 24, Git, authenticated `gh` with repository write
+access, and GitHub Packages read access. It pins from the latest `main` in a
+temporary clone, leaves your checkout untouched, and reuses an open PR for the
+same CLI version. If `main` already pins that version, it does nothing.
+`NODE_AUTH_TOKEN` can supply the package read token; GitHub authentication
+remains separate through `gh` or `GH_TOKEN`.
+
+Superblocks' master workflow runs this command after publishing the master
+CLI, so each successful master publish can open its dev pin PR. Review and
+merge the PR to update `#master`; users then update their dev plugin. New CLI
+versions get separate PRs, so merge the newest pending update.
+
 ## Cowork releases
 
 Run **Actions > Release Cowork plugin > Run workflow** from `main` and choose

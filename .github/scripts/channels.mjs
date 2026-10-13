@@ -87,7 +87,7 @@ export class Channel {
     ];
   }
 
-  pinTo(root, spec) {
+  pinTo(root, spec, env = process.env) {
     execFileSync(
       "npm",
       [
@@ -97,12 +97,149 @@ export class Channel {
         "--package-lock-only",
         ...this.npmArgs(),
       ],
-      { cwd: this.pinDirectory(root), stdio: "inherit" },
+      { cwd: this.pinDirectory(root), stdio: "inherit", env },
     );
   }
 
   install(pluginDirectory) {
     execFileSync("npm", ["ci", ...this.npmArgs()], { cwd: pluginDirectory, stdio: "inherit" });
+  }
+}
+
+export class DevPinUpdate {
+  open() {
+    const repository = "superblocksteam/claude-marketplace";
+    const channel = Channel.named("dev");
+    const workspace = mkdtempSync(join(tmpdir(), "superblocks-dev-pin-"));
+    const checkout = join(workspace, "checkout");
+    const git = (...args) =>
+      execFileSync(
+        "git",
+        ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential", ...args],
+        {
+          cwd: checkout,
+          encoding: "utf8",
+          env: { ...process.env, ...BOT, GIT_TERMINAL_PROMPT: "0" },
+        },
+      ).trim();
+    const gh = (...args) => execFileSync("gh", args, { encoding: "utf8" }).trim();
+    const npmEnv = { ...process.env };
+    for (const name of [
+      "GH_TOKEN",
+      "GITHUB_TOKEN",
+      "GH_ENTERPRISE_TOKEN",
+      "GITHUB_ENTERPRISE_TOKEN",
+    ]) {
+      delete npmEnv[name];
+    }
+    try {
+      if (npmEnv.NODE_AUTH_TOKEN) {
+        const npmrc = join(workspace, "npmrc");
+        writeFileSync(npmrc, "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n", {
+          mode: 0o600,
+        });
+        npmEnv.NPM_CONFIG_USERCONFIG = npmrc;
+        npmEnv.npm_config_userconfig = npmrc;
+      }
+      const version = JSON.parse(
+        execFileSync(
+          "npm",
+          [
+            "view",
+            "@superblocksteam/cli@master",
+            "version",
+            "--json",
+            "--prefer-online",
+            ...channel.npmArgs(),
+          ],
+          { encoding: "utf8", env: npmEnv },
+        ),
+      );
+      if (
+        typeof version !== "string" ||
+        !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(version)
+      ) {
+        throw new Error(`Invalid CLI version: ${JSON.stringify(version)}`);
+      }
+      execFileSync(
+        "git",
+        [
+          "clone",
+          "--quiet",
+          "--depth=1",
+          "--single-branch",
+          "--branch=main",
+          `https://github.com/${repository}.git`,
+          checkout,
+        ],
+        { stdio: "inherit" },
+      );
+      const previous = channel.cliVersion(checkout);
+      if (previous === version) return `dev already pins ${version}; no PR needed.`;
+      const branch = `automation/dev-cli-${version}`;
+      const prs = JSON.parse(
+        gh(
+          "pr",
+          "list",
+          "--repo",
+          repository,
+          "--base",
+          "main",
+          "--head",
+          branch,
+          "--state",
+          "open",
+          "--json",
+          "url",
+        ),
+      );
+      if (prs.length) return prs[0].url;
+      if (git("ls-remote", "--heads", "origin", `refs/heads/${branch}`)) {
+        git("fetch", "--quiet", "origin", `refs/heads/${branch}`);
+        git("checkout", "--quiet", "--detach", "FETCH_HEAD");
+      } else {
+        channel.pinTo(checkout, version, npmEnv);
+      }
+      const manifest = readJson(join(channel.pinDirectory(checkout), "package.json"));
+      const lockfile = readJson(join(channel.pinDirectory(checkout), "package-lock.json"));
+      if (
+        channel.cliVersion(checkout) !== version ||
+        manifest.dependencies["@superblocksteam/cli"] !== version ||
+        lockfile.packages[""].dependencies["@superblocksteam/cli"] !== version
+      ) {
+        throw new Error(`Dev pin does not match the requested CLI ${version}.`);
+      }
+      const files = PIN_FILES.map((file) => join(channel.pin, file));
+      git("add", "--", ...files);
+      if (git("diff", "--cached", "--name-only")) {
+        git("commit", "--quiet", "-m", `chore(plugin): pin dev CLI ${version}`);
+        git("push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
+      }
+      const body = join(workspace, "pr.md");
+      const account = gh("api", "user", "--jq", ".login");
+      const commit = git("rev-parse", "HEAD");
+      writeFileSync(
+        body,
+        `## What\n\nPin the dev plugin CLI from ${previous} to ${version}, resolved from \`@master\`. Merging regenerates the \`#master\` marketplace branch.\n\n## Validation\n\nThe generated dev package and lockfile both pin \`${version}\`, resolved with \`npm view @superblocksteam/cli@master version --prefer-online\`.\n\n**Artifact:** [generated pin commit](https://github.com/${repository}/commit/${commit}). MCP startup is checked by the Channels workflow; it was not run by this command.\n\nAgent-authored by dev pin automation (@${account}).\n`,
+      );
+      return gh(
+        "pr",
+        "create",
+        "--repo",
+        repository,
+        "--base",
+        "main",
+        "--head",
+        branch,
+        "--draft",
+        "--title",
+        `chore(plugin): pin dev CLI ${version}`,
+        "--body-file",
+        body,
+      );
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   }
 }
 
