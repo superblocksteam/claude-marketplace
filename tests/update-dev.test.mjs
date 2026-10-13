@@ -10,7 +10,14 @@ import { DevPinUpdate } from "../.github/scripts/channels.mjs";
 test("dev updates open one exact-pin PR without modifying a checkout or leaking write credentials", (t) => {
   const directory = mkdtempSync(join(tmpdir(), "superblocks-dev-update-test-"));
   const originalEnv = { ...process.env };
+  const originalLog = console.log;
+  const progress = [];
+  console.log = (...args) => {
+    progress.push(args.join(" "));
+    originalLog(...args);
+  };
   t.after(() => {
+    console.log = originalLog;
     process.env = originalEnv;
     rmSync(directory, { recursive: true, force: true });
   });
@@ -63,6 +70,7 @@ test("dev updates open one exact-pin PR without modifying a checkout or leaking 
     NODE_AUTH_TOKEN: "fixture-package-read-credential",
   });
   const common = String.raw`
+import assert from "node:assert/strict";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 const state = JSON.parse(readFileSync(process.env.DEV_UPDATE_STATE, "utf8"));
@@ -99,9 +107,28 @@ else if (args[0] === "install") {
     join(bin, "gh"),
     String.raw`#!${process.execPath}
 ${common}
-if (args[0] === "api") { log(); console.log("fixture-bot"); }
-else if (args[1] === "list") { log(); console.log(JSON.stringify(state.open ? [{ url: state.open }] : [])); }
+if (args[0] === "api") {
+  assert.deepEqual(args, ["api", "user", "--jq", ".login"]);
+  log(); console.log("fixture-bot");
+}
+else if (args[1] === "list") {
+  assert.deepEqual(args, [
+    "pr", "list", "--repo", "superblocksteam/claude-marketplace",
+    "--base", "main", "--head", "automation/dev-cli-" + state.version + "-pin",
+    "--state", "all", "--json", "url,state",
+  ]);
+  log();
+  console.log(JSON.stringify(state.closed
+    ? [{ url: state.closed, state: "CLOSED" }]
+    : state.open ? [{ url: state.open, state: "OPEN" }] : []));
+}
 else if (args[1] === "create") {
+  assert.deepEqual(args, [
+    "pr", "create", "--repo", "superblocksteam/claude-marketplace",
+    "--base", "main", "--head", "automation/dev-cli-" + state.version + "-pin",
+    "--draft", "--title", "chore(plugin): pin dev CLI " + state.version,
+    "--body-file", args[args.length - 1],
+  ]);
   log({ body: readFileSync(args[args.indexOf("--body-file") + 1], "utf8") });
   if (state.failCreate) process.exit(1);
   state.open = "https://github.com/superblocksteam/claude-marketplace/pull/123";
@@ -168,6 +195,17 @@ else if (args[1] === "create") {
   );
   assert.equal(git(origin, "rev-parse", branch("1.0.1")), commit);
 
+  state({
+    version: "1.0.1",
+    closed: "https://github.com/superblocksteam/claude-marketplace/pull/123",
+  });
+  writeFileSync(callsFile, "");
+  const rejected = update.open();
+  assert.match(rejected, /closed.*1\.0\.1.*not reopened/i);
+  assert.equal(calls().filter((call) => call.args[1] === "create").length, 0);
+  assert.equal(git(origin, "rev-parse", branch("1.0.1")), commit);
+  console.log("Dev pin rejected PR preserved:", rejected);
+
   pin("1.0.1");
   writeFileSync(callsFile, "");
   const unchanged = update.open();
@@ -215,8 +253,11 @@ else if (args[1] === "create") {
   assert.equal(git(origin, "ls-remote", origin, `refs/heads/${branch("1.0.4")}`), "");
 
   state({ version: "1.0.3", failCreate: true });
+  progress.length = 0;
   assert.throws(() => update.open());
   const orphan = git(origin, "rev-parse", branch("1.0.3"));
+  assert.ok(progress.includes("CLI @master resolved to 1.0.3."));
+  assert.ok(progress.includes(`Pushed ${branch("1.0.3")} at ${orphan}.`));
   state({ version: "1.0.3" });
   assert.match(update.open(), /\/pull\/123$/);
   assert.equal(

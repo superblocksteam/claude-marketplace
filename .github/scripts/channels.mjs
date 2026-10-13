@@ -164,6 +164,7 @@ export class DevPinUpdate {
       if (!Channel.isExactVersion(version)) {
         throw new Error(`Invalid CLI version: ${JSON.stringify(version)}`);
       }
+      console.log(`CLI @master resolved to ${version}.`);
       execFileSync(
         "git",
         [
@@ -181,6 +182,7 @@ export class DevPinUpdate {
       if (previous === version) return `dev already pins ${version}; no PR needed.`;
       const branch = `automation/dev-cli-${version}-pin`;
       git("check-ref-format", "--branch", branch);
+      console.log(`Checking PR history for ${branch}; main currently pins ${previous}.`);
       const prs = JSON.parse(
         gh(
           "pr",
@@ -192,13 +194,19 @@ export class DevPinUpdate {
           "--head",
           branch,
           "--state",
-          "open",
+          "all",
           "--json",
-          "url",
+          "url,state",
         ),
       );
-      if (prs.length) return prs[0].url;
+      if (prs.length) {
+        const open = prs.find((pr) => pr.state === "OPEN");
+        if (!open) return `PR ${prs[0].url} is closed for CLI ${version}; not reopened.`;
+        console.log(`Reusing open PR for CLI ${version}: ${open.url}.`);
+        return open.url;
+      }
       if (git("ls-remote", "--heads", "origin", `refs/heads/${branch}`)) {
+        console.log(`Recovering ${branch} after an interrupted PR creation.`);
         git("fetch", "--quiet", "origin", `refs/heads/${branch}`);
         git("checkout", "--quiet", "--detach", "FETCH_HEAD");
       } else {
@@ -218,6 +226,7 @@ export class DevPinUpdate {
       if (git("diff", "--cached", "--name-only")) {
         git("commit", "--quiet", "-m", `chore(plugin): pin dev CLI ${version}`);
         git("push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
+        console.log(`Pushed ${branch} at ${git("rev-parse", "HEAD")}.`);
       }
       const body = join(workspace, "pr.md");
       const account = gh("api", "user", "--jq", ".login");
@@ -226,6 +235,7 @@ export class DevPinUpdate {
         body,
         `## What\n\nPin the dev plugin CLI from ${previous} to ${version}, resolved from \`@master\`. Merging regenerates the \`#master\` marketplace branch.\n\n## Validation\n\nThe generated dev package and lockfile both pin \`${version}\`, resolved with \`npm view @superblocksteam/cli@master version --prefer-online\`.\n\n**Artifact:** [generated pin commit](https://github.com/${repository}/commit/${commit}). MCP startup is checked by the Channels workflow; it was not run by this command.\n\nAgent-authored by dev pin automation (@${account}).\n`,
       );
+      console.log(`Opening draft PR for CLI ${version} from ${branch} (${commit}).`);
       return gh(
         "pr",
         "create",

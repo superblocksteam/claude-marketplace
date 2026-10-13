@@ -46,14 +46,19 @@ npm run update:dev
 The command requires Node.js 24, Git, authenticated `gh` with repository write
 access, and GitHub Packages read access. It pins from the latest `main` in a
 temporary clone, leaves your checkout untouched, and reuses an open PR for the
-same CLI version. If `main` already pins that version, it does nothing.
+same CLI version. If a PR for that version was closed or merged, it does not
+reopen it; use `npm run pin -- dev <version>` for an intentional retry.
+If `main` already pins that version, it does nothing.
 `NODE_AUTH_TOKEN` can supply the package read token; GitHub authentication
 remains separate through `gh` or `GH_TOKEN`.
 
 Superblocks' master workflow runs this command after publishing the master
 CLI, so each successful master publish can open its dev pin PR. Review and
 merge the PR to update `#master`; users then update their dev plugin. New CLI
-versions get separate PRs, so merge the newest pending update.
+versions get separate PRs so newer builds do not replace a version under
+review. Sort pending PRs by creation time rather than snapshot version, merge
+the newest acceptable update, and close superseded PRs. Automation leaves
+review decisions and existing PRs intact.
 
 ## Cowork releases
 
