@@ -49,6 +49,9 @@ temporary clone, leaves your checkout untouched, and reuses an open PR for the
 same CLI version. If a PR for that version was closed or merged, it does not
 reopen it; use `npm run pin -- dev <version>` for an intentional retry.
 If `main` already pins that version, it does nothing.
+PR history must come from this repository. Recovery regenerates registry
+pins and accepts an existing branch only when its tree contains exactly the
+dev pin changes and those files match; otherwise, pin manually.
 `NODE_AUTH_TOKEN` can supply the package read token; GitHub authentication
 remains separate through `gh` or `GH_TOKEN`.
 

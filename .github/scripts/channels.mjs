@@ -196,8 +196,10 @@ export class DevPinUpdate {
           "--state",
           "all",
           "--json",
-          "url,state",
+          "url,state,isCrossRepository,headRepository",
         ),
+      ).filter(
+        (pr) => pr.isCrossRepository === false && pr.headRepository?.nameWithOwner === repository,
       );
       if (prs.length) {
         const open = prs.find((pr) => pr.state === "OPEN");
@@ -205,13 +207,7 @@ export class DevPinUpdate {
         console.log(`Reusing open PR for CLI ${version}: ${open.url}.`);
         return open.url;
       }
-      if (git("ls-remote", "--heads", "origin", `refs/heads/${branch}`)) {
-        console.log(`Recovering ${branch} after an interrupted PR creation.`);
-        git("fetch", "--quiet", "origin", `refs/heads/${branch}`);
-        git("checkout", "--quiet", "--detach", "FETCH_HEAD");
-      } else {
-        channel.pinTo(checkout, version, npmEnv);
-      }
+      channel.pinTo(checkout, version, npmEnv);
       const manifest = readJson(join(channel.pinDirectory(checkout), "package.json"));
       const lockfile = readJson(join(channel.pinDirectory(checkout), "package-lock.json"));
       if (
@@ -222,15 +218,33 @@ export class DevPinUpdate {
         throw new Error(`Dev pin does not match the requested CLI ${version}.`);
       }
       const files = PIN_FILES.map((file) => join(channel.pin, file));
-      git("add", "--", ...files);
-      if (git("diff", "--cached", "--name-only")) {
+      let commit;
+      if (git("ls-remote", "--heads", "origin", `refs/heads/${branch}`)) {
+        console.log(`Validating ${branch} against freshly resolved dev pins.`);
+        git("fetch", "--quiet", "origin", `refs/heads/${branch}`);
+        const changes = git("diff", "--name-only", "origin/main", "FETCH_HEAD").split("\n");
+        if (
+          changes.some((file) => !files.includes(file)) ||
+          files.some(
+            (file) =>
+              git("show", `FETCH_HEAD:${file}`) !==
+              readFileSync(join(checkout, file), "utf8").trim(),
+          )
+        ) {
+          throw new Error(
+            `Recovered branch ${branch} does not match freshly resolved dev pin files.`,
+          );
+        }
+        commit = git("rev-parse", "FETCH_HEAD");
+      } else {
+        git("add", "--", ...files);
         git("commit", "--quiet", "-m", `chore(plugin): pin dev CLI ${version}`);
         git("push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
-        console.log(`Pushed ${branch} at ${git("rev-parse", "HEAD")}.`);
+        commit = git("rev-parse", "HEAD");
+        console.log(`Pushed ${branch} at ${commit}.`);
       }
       const body = join(workspace, "pr.md");
       const account = gh("api", "user", "--jq", ".login");
-      const commit = git("rev-parse", "HEAD");
       writeFileSync(
         body,
         `## What\n\nPin the dev plugin CLI from ${previous} to ${version}, resolved from \`@master\`. Merging regenerates the \`#master\` marketplace branch.\n\n## Validation\n\nThe generated dev package and lockfile both pin \`${version}\`, resolved with \`npm view @superblocksteam/cli@master version --prefer-online\`.\n\n**Artifact:** [generated pin commit](https://github.com/${repository}/commit/${commit}). MCP startup is checked by the Channels workflow; it was not run by this command.\n\nAgent-authored by dev pin automation (@${account}).\n`,

@@ -96,6 +96,8 @@ else if (args[0] === "install") {
     else {
       if (!state.corruptRootPin) value.packages[""].dependencies["@superblocksteam/cli"] = version;
       value.packages["node_modules/@superblocksteam/cli"].version = version;
+      value.packages["node_modules/@superblocksteam/cli"].resolved = "https://npm.pkg.github.com/@superblocksteam/cli/-/cli-" + version + ".tgz";
+      value.packages["node_modules/@superblocksteam/cli"].integrity = "sha512-registry-fixture";
     }
     writeFileSync(file, JSON.stringify(value, null, 2) + "\n");
   }
@@ -115,12 +117,17 @@ else if (args[1] === "list") {
   assert.deepEqual(args, [
     "pr", "list", "--repo", "superblocksteam/claude-marketplace",
     "--base", "main", "--head", "automation/dev-cli-" + state.version + "-pin",
-    "--state", "all", "--json", "url,state",
+    "--state", "all", "--json", "url,state,isCrossRepository,headRepository",
   ]);
   log();
+  const head = {
+    isCrossRepository: state.fork ?? false,
+    headRepository: { nameWithOwner: state.fork
+      ? "someone-else/claude-marketplace" : "superblocksteam/claude-marketplace" },
+  };
   console.log(JSON.stringify(state.closed
-    ? [{ url: state.closed, state: "CLOSED" }]
-    : state.open ? [{ url: state.open, state: "OPEN" }] : []));
+    ? [{ url: state.closed, state: "CLOSED", ...head }]
+    : state.open ? [{ url: state.open, state: "OPEN", ...head }] : []));
 }
 else if (args[1] === "create") {
   assert.deepEqual(args, [
@@ -206,6 +213,21 @@ else if (args[1] === "create") {
   assert.equal(git(origin, "rev-parse", branch("1.0.1")), commit);
   console.log("Dev pin rejected PR preserved:", rejected);
 
+  for (const [version, status] of [
+    ["1.0.5", "open"],
+    ["1.0.6", "closed"],
+  ]) {
+    state({
+      version,
+      fork: true,
+      [status]: "https://github.com/superblocksteam/claude-marketplace/pull/456",
+    });
+    const result = update.open();
+    assert.equal(result, "https://github.com/superblocksteam/claude-marketplace/pull/123");
+    console.log("Dev pin ignored fork PR:", JSON.stringify({ status, result }));
+  }
+
+  state({ version: "1.0.1" });
   pin("1.0.1");
   writeFileSync(callsFile, "");
   const unchanged = update.open();
@@ -265,4 +287,37 @@ else if (args[1] === "create") {
     orphan,
     "retry must reuse a pushed branch",
   );
+
+  const attacker = join(directory, "attacker");
+  git(directory, "clone", "--quiet", "--branch", branch("1.0.3"), origin, attacker);
+  const lockPath = join(attacker, "channels/dev/package-lock.json");
+  const legitimateLock = readFileSync(lockPath, "utf8");
+  const altered = JSON.parse(legitimateLock);
+  altered.packages["node_modules/@superblocksteam/cli"].resolved =
+    "https://npm.pkg.github.com/@someone-else/other/-/cli-1.0.3.tgz";
+  altered.packages["node_modules/@superblocksteam/cli"].integrity = "sha512-substituted";
+  writeFileSync(lockPath, JSON.stringify(altered, null, 2) + "\n");
+  const pushAttack = () => {
+    git(attacker, "add", ".");
+    git(attacker, ...identity, "commit", "--quiet", "-m", "alter recovered branch");
+    git(attacker, "push", "--quiet", "origin", `HEAD:refs/heads/${branch("1.0.3")}`);
+    state({ version: "1.0.3" });
+    writeFileSync(callsFile, "");
+    assert.throws(
+      () => update.open(),
+      (error) => {
+        assert.match(
+          error.message,
+          /Recovered branch .* does not match freshly resolved dev pin files/,
+        );
+        console.log("Dev pin recovery rejected:", error.message);
+        return true;
+      },
+    );
+    assert.equal(calls().filter((call) => call.args[1] === "create").length, 0);
+  };
+  pushAttack();
+  writeFileSync(lockPath, legitimateLock);
+  writeFileSync(join(attacker, "README.md"), "unexpected tracked content\n");
+  pushAttack();
 });
