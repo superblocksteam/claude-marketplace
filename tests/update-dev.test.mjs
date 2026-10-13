@@ -110,7 +110,7 @@ else if (args[0] === "install") {
     "--ignore-scripts", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org/",
     "--@superblocksteam:registry=https://npm.pkg.github.com/",
   ]);
-  if (state.failPin) process.exit(1);
+  if (state.failPin) process.exit(17);
   const version = args[1].slice("@superblocksteam/cli@".length);
   for (const file of ["package.json", "package-lock.json"]) {
     const value = JSON.parse(readFileSync(file, "utf8"));
@@ -206,6 +206,7 @@ else if (args[1] === "create") {
   assert.ok(created.args.includes("--draft"));
   assert.match(created.body, /@fixture-bot/);
   assert.match(created.body, /1\.0\.0.*1\.0\.1/);
+  assert.match(created.body, /Squash merge/);
   assert.equal(git(checkout, "status", "--short"), "?? uncommitted.txt");
   assert.equal(readFileSync(join(checkout, "uncommitted.txt"), "utf8"), "leave this alone\n");
   console.log(
@@ -310,7 +311,10 @@ else if (args[1] === "create") {
     );
   }
   state({ version: "1.0.2", failPin: true });
-  assert.throws(() => update.open());
+  assert.throws(() => update.open(), {
+    message: /Command failed: npm install @superblocksteam\/cli@1\.0\.2 /,
+    status: 17,
+  });
   assert.equal(git(origin, "ls-remote", origin, `refs/heads/${branch("1.0.2")}`), "");
   state({ version: "1.0.4", corruptRootPin: true });
   assert.throws(() => update.open(), /Dev pin does not match the requested CLI 1\.0\.4/);

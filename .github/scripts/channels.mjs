@@ -280,7 +280,7 @@ export class DevPinUpdate {
       const account = gh("api", "user", "--jq", ".login");
       writeFileSync(
         body,
-        `## What\n\nPin the dev plugin CLI from ${previous} to ${version}, resolved from \`@master\`. Merging regenerates the \`#master\` marketplace branch.\n\n## Validation\n\nThe generated dev package and lockfile both pin \`${version}\`, resolved with \`npm view @superblocksteam/cli@master version --prefer-online\`.\n\n**Artifact:** [generated pin commit](https://github.com/${repository}/commit/${commit}). MCP startup is checked by the Channels workflow; it was not run by this command.\n\nAgent-authored by dev pin automation (@${account}).\n`,
+        `## What\n\nPin the dev plugin CLI from ${previous} to ${version}, resolved from \`@master\`. Merging regenerates the \`#master\` marketplace branch. Squash merge this PR to keep recovered branch history out of main.\n\n## Validation\n\nThe generated dev package and lockfile both pin \`${version}\`, resolved with \`npm view @superblocksteam/cli@master version --prefer-online\`.\n\n**Artifact:** [generated pin commit](https://github.com/${repository}/commit/${commit}). MCP startup is checked by the Channels workflow; it was not run by this command.\n\nAgent-authored by dev pin automation (@${account}).\n`,
       );
       console.log(`Opening draft PR for CLI ${version} from ${branch} (${commit}).`);
       return gh(

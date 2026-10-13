@@ -62,7 +62,9 @@ merge the PR to update `#master`; users then update their dev plugin. New CLI
 versions get separate PRs so newer builds do not replace a version under
 review. Sort pending PRs by creation time rather than snapshot version, merge
 the newest acceptable update, and close superseded PRs. Automation leaves
-review decisions and existing PRs intact.
+review decisions and existing PRs intact. Existing open PR branches are not
+rewritten or revalidated; reviewers own those changes. Squash merge generated
+pin PRs to keep recovered branch history out of `main`.
 
 ## Cowork releases
 
