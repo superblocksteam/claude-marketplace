@@ -34,7 +34,7 @@ test("every channel pins one exact CLI version in package.json and its lockfile"
     const pin = channel.pinDirectory(root);
     const spec = readJson(join(pin, "package.json")).dependencies["@superblocksteam/cli"];
     const lockfile = readJson(join(pin, "package-lock.json"));
-    assert.match(spec, /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/, `${channel.name} must pin exactly`);
+    assert.ok(Channel.isExactVersion(spec), `${channel.name} must pin exactly`);
     assert.equal(lockfile.packages[""].dependencies["@superblocksteam/cli"], spec);
     assert.equal(channel.cliVersion(root), spec);
   }

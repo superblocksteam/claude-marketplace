@@ -113,7 +113,7 @@ else if (args[1] === "create") {
   );
   const state = (value) => writeFileSync(stateFile, JSON.stringify(value));
   const calls = () => readFileSync(callsFile, "utf8").trim().split("\n").map(JSON.parse);
-  const branch = (version) => `automation/dev-cli-${version}`;
+  const branch = (version) => `automation/dev-cli-${version}-pin`;
   const update = new DevPinUpdate();
 
   state({ version: "1.0.1" });
@@ -175,7 +175,28 @@ else if (args[1] === "create") {
   console.log("Dev pin unchanged:", unchanged);
   assert.equal(calls().length, 1);
 
-  for (const version of ["master", "1.0.2-bad..tag", ["1.0.2"], "1.0.2/other"]) {
+  for (const version of ["2.0.0+build.7", "2.0.0-SNAPSHOT.a+build.lock", "2.0.0-next.1+001"]) {
+    state({ version });
+    assert.match(update.open(), /\/pull\/123$/);
+    const metadataPin = JSON.parse(
+      git(origin, "show", `${branch(version)}:channels/dev/package.json`),
+    );
+    assert.equal(metadataPin.dependencies["@superblocksteam/cli"], version);
+    console.log(
+      "Dev pin build metadata accepted:",
+      metadataPin.dependencies["@superblocksteam/cli"],
+    );
+  }
+
+  for (const version of [
+    "master",
+    "1.0.2-bad..tag",
+    ["1.0.2"],
+    "1.0.2/other",
+    "01.0.2",
+    "1.0.2-next.01",
+    "1.0.2\n",
+  ]) {
     state({ version });
     assert.throws(
       () => update.open(),

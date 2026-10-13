@@ -9,6 +9,8 @@ const PLUGIN = "plugins/superblocks-plugin";
 const MARKETPLACE = ".claude-plugin/marketplace.json";
 const MANIFEST = `${PLUGIN}/.claude-plugin/plugin.json`;
 const PIN_FILES = ["package.json", "package-lock.json"];
+const EXACT_CLI_VERSION =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
 const BOT = {
   GIT_AUTHOR_NAME: "github-actions[bot]",
   GIT_AUTHOR_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com",
@@ -29,6 +31,10 @@ export class Channel {
 
   static all() {
     return [...Channel.#channels];
+  }
+
+  static isExactVersion(version) {
+    return typeof version === "string" && EXACT_CLI_VERSION.test(version);
   }
 
   static named(name) {
@@ -155,10 +161,7 @@ export class DevPinUpdate {
           { encoding: "utf8", env: npmEnv },
         ),
       );
-      if (
-        typeof version !== "string" ||
-        !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(version)
-      ) {
+      if (!Channel.isExactVersion(version)) {
         throw new Error(`Invalid CLI version: ${JSON.stringify(version)}`);
       }
       execFileSync(
@@ -176,7 +179,8 @@ export class DevPinUpdate {
       );
       const previous = channel.cliVersion(checkout);
       if (previous === version) return `dev already pins ${version}; no PR needed.`;
-      const branch = `automation/dev-cli-${version}`;
+      const branch = `automation/dev-cli-${version}-pin`;
+      git("check-ref-format", "--branch", branch);
       const prs = JSON.parse(
         gh(
           "pr",
