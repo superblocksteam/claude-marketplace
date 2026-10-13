@@ -147,20 +147,24 @@ export class DevPinUpdate {
         npmEnv.NPM_CONFIG_USERCONFIG = npmrc;
         npmEnv.npm_config_userconfig = npmrc;
       }
-      const version = JSON.parse(
-        execFileSync(
-          "npm",
-          [
-            "view",
-            "@superblocksteam/cli@master",
-            "version",
-            "--json",
-            "--prefer-online",
-            ...channel.npmArgs(),
-          ],
-          { encoding: "utf8", env: npmEnv },
-        ),
+      const metadata = execFileSync(
+        "npm",
+        [
+          "view",
+          "@superblocksteam/cli@master",
+          "version",
+          "--json",
+          "--prefer-online",
+          ...channel.npmArgs(),
+        ],
+        { encoding: "utf8", env: npmEnv },
       );
+      let version;
+      try {
+        version = JSON.parse(metadata);
+      } catch (cause) {
+        throw new Error("npm view @superblocksteam/cli@master returned invalid JSON.", { cause });
+      }
       if (!Channel.isExactVersion(version)) {
         throw new Error(`Invalid CLI version: ${JSON.stringify(version)}`);
       }

@@ -86,7 +86,14 @@ log({
   githubToken: process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN,
   npmrc: readFileSync(process.env.NPM_CONFIG_USERCONFIG, "utf8"),
 });
-if (args[0] === "view") console.log(JSON.stringify(state.version));
+if (args[0] === "view") {
+  assert.deepEqual(args, [
+    "view", "@superblocksteam/cli@master", "version", "--json", "--prefer-online",
+    "--ignore-scripts", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org/",
+    "--@superblocksteam:registry=https://npm.pkg.github.com/",
+  ]);
+  console.log(state.rawVersion ?? JSON.stringify(state.version));
+}
 else if (args[0] === "install") {
   if (state.failPin) process.exit(1);
   const version = args[1].slice("@superblocksteam/cli@".length);
@@ -250,6 +257,10 @@ else if (args[1] === "create") {
 
   for (const version of [
     "master",
+    "latest",
+    "^2.0.170",
+    "2.0",
+    "v2.0.0",
     "1.0.2-bad..tag",
     ["1.0.2"],
     "1.0.2/other",
@@ -263,6 +274,17 @@ else if (args[1] === "create") {
       (error) => {
         assert.match(error.message, /Invalid CLI version/);
         console.log("Dev pin rejected:", error.message);
+        return true;
+      },
+    );
+  }
+  for (const rawVersion of ["", "not JSON"]) {
+    state({ rawVersion });
+    assert.throws(
+      () => update.open(),
+      (error) => {
+        assert.match(error.message, /npm view @superblocksteam\/cli@master returned invalid JSON/);
+        console.log("Dev pin invalid registry output rejected:", error.message);
         return true;
       },
     );
