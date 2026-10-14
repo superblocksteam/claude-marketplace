@@ -37,6 +37,35 @@ with the change; for `beta`, also bump the plugin `version` in
 `.claude-plugin/marketplace.json` and the plugin manifest. The `next` and `dev`
 branches derive their versions from the source commit and CLI version.
 
+To open a draft PR for the latest `@master` automatically:
+
+```sh
+npm run update:dev
+```
+
+The command requires Node.js 24, Git, authenticated `gh` with repository write
+access, and GitHub Packages read access. It pins from the latest `main` in a
+temporary clone, leaves your checkout untouched, and reuses an open PR for the
+same CLI version. If a PR for that version was closed or merged, it does not
+reopen it; use `npm run pin -- dev <version>` for an intentional retry.
+If `main` already pins that version, it does nothing.
+PR history must come from this repository. npm runs in an isolated directory
+containing only the pin manifests, with proxying disabled and TLS verification
+enabled. Recovery reuses a matching branch or appends a fresh commit from
+latest `main` and registry pins, preserving branch history without a force push.
+`NODE_AUTH_TOKEN` can supply the package read token; GitHub authentication
+remains separate through `gh` or `GH_TOKEN`.
+
+Superblocks' master workflow runs this command after publishing the master
+CLI, so each successful master publish can open its dev pin PR. Review and
+merge the PR to update `#master`; users then update their dev plugin. New CLI
+versions get separate PRs so newer builds do not replace a version under
+review. Sort pending PRs by creation time rather than snapshot version, merge
+the newest acceptable update, and close superseded PRs. Automation leaves
+review decisions and existing PRs intact. Existing open PR branches are not
+rewritten or revalidated; reviewers own those changes. Squash merge generated
+pin PRs to keep recovered branch history out of `main`.
+
 ## Cowork releases
 
 Run **Actions > Release Cowork plugin > Run workflow** from `main` and choose
