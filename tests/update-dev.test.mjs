@@ -74,6 +74,7 @@ test("dev updates open one exact-pin PR without modifying a checkout or leaking 
     GH_TOKEN: "fixture-write-credential",
     GITHUB_TOKEN: "fixture-other-write-credential",
     NODE_AUTH_TOKEN: "fixture-package-read-credential",
+    DEV_PIN_AGENT_ACCOUNT: "fixture-app[bot]",
   });
   const common = String.raw`
 import assert from "node:assert/strict";
@@ -132,8 +133,13 @@ else if (args[0] === "install") {
     String.raw`#!${process.execPath}
 ${common}
 if (args[0] === "api") {
-  assert.deepEqual(args, ["api", "user", "--jq", ".login"]);
-  log(); console.log("fixture-bot");
+  if (args[1] === "user") {
+    assert.deepEqual(args, ["api", "user", "--jq", ".login"]);
+    log(); console.log("fixture-bot");
+  } else {
+    assert.deepEqual(args, ["api", "users/fixture-app%5Bbot%5D", "--jq", ".login"]);
+    log(); console.log("fixture-app[bot]");
+  }
 }
 else if (args[1] === "list") {
   assert.deepEqual(args, [
@@ -204,11 +210,34 @@ else if (args[1] === "create") {
   }
   const created = calls().find((call) => call.args[1] === "create");
   assert.ok(created.args.includes("--draft"));
-  assert.match(created.body, /@fixture-bot/);
+  assert.match(created.body, /@fixture-app\[bot\]/);
+  assert.deepEqual(calls().find((call) => call.args[0] === "api").args, [
+    "api",
+    "users/fixture-app%5Bbot%5D",
+    "--jq",
+    ".login",
+  ]);
   assert.match(created.body, /1\.0\.0.*1\.0\.1/);
   assert.match(created.body, /Squash merge/);
   assert.equal(git(checkout, "status", "--short"), "?? uncommitted.txt");
   assert.equal(readFileSync(join(checkout, "uncommitted.txt"), "utf8"), "leave this alone\n");
+
+  delete process.env.DEV_PIN_AGENT_ACCOUNT;
+  state({ version: "1.0.7" });
+  writeFileSync(callsFile, "");
+  assert.match(update.open(), /\/pull\/123$/);
+  assert.match(calls().find((call) => call.args[1] === "create").body, /@fixture-bot/);
+  assert.deepEqual(calls().find((call) => call.args[0] === "api").args, [
+    "api",
+    "user",
+    "--jq",
+    ".login",
+  ]);
+  process.env.DEV_PIN_AGENT_ACCOUNT = "fixture-app[bot]";
+  state({
+    version: "1.0.1",
+    open: "https://github.com/superblocksteam/claude-marketplace/pull/123",
+  });
   console.log(
     "Dev pin PR observed:",
     JSON.stringify({
