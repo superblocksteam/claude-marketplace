@@ -110,6 +110,19 @@ process.on("SIGTERM", () => process.exit(0));
   assert.ok(files.includes(".claude-plugin/plugin.json"));
   assert.ok(files.includes("skills/configure/SKILL.md"));
   assert.ok(files.includes("README.md"), "The install archive must include the plugin README");
+  assert.ok(files.includes("LICENSE"), "The install archive must include the plugin license");
+  assert.ok(bundleFiles.includes("LICENSE"), "The MCPB must include the plugin license");
+  assert.ok(bundleFiles.includes("README.md"), "The MCPB must include the plugin README");
+  assert.equal(
+    readFileSync(join(extracted, "runtime/README.md"), "utf8"),
+    readFileSync(join(plugin, "README.md"), "utf8"),
+  );
+  for (const path of ["LICENSE", "runtime/LICENSE"]) {
+    assert.equal(
+      readFileSync(join(extracted, path), "utf8"),
+      readFileSync(join(plugin, "LICENSE"), "utf8"),
+    );
+  }
   assert.equal(
     readFileSync(join(extracted, "README.md"), "utf8"),
     readFileSync(join(plugin, "README.md"), "utf8"),

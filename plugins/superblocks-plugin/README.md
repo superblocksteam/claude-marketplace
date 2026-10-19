@@ -82,5 +82,11 @@ and retry the operation. For startup errors, check Node.js 24 or newer is on
 Claude's PATH. If the CLI is missing, reinstall the plugin.
 
 For server and sign-in instructions, see the
-[configure skill](skills/configure/SKILL.md). Learn more in the
+[configure skill](https://github.com/superblocksteam/claude-marketplace/blob/main/plugins/superblocks-plugin/skills/configure/SKILL.md).
+Learn more in the
 [Superblocks documentation](https://docs.superblocks.com/).
+
+## License
+
+This plugin uses the [Superblocks Community Software License](LICENSE), matching
+the license distributed with the Superblocks CLI.

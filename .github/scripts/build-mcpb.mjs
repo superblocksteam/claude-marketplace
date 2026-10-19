@@ -100,6 +100,8 @@ mkdirSync(output, { recursive: true });
 mkdirSync(join(bundle, "scripts"), { recursive: true });
 try {
   cpSync(join(plugin, "scripts/launch-mcp.mjs"), join(bundle, "scripts/launch-mcp.mjs"));
+  cpSync(join(plugin, "LICENSE"), join(bundle, "LICENSE"));
+  cpSync(join(plugin, "README.md"), join(bundle, "README.md"));
   const dependencies = realpathSync(join(plugin, "node_modules"));
   copyRuntimeDependencies(dependencies, join(bundle, "node_modules"));
   const manifest = {
@@ -133,6 +135,7 @@ try {
   );
   cpSync(join(plugin, "skills"), join(cowork, "skills"), { recursive: true });
   cpSync(join(plugin, "README.md"), join(cowork, "README.md"));
+  cpSync(join(plugin, "LICENSE"), join(cowork, "LICENSE"));
   cpSync(bundlePath, join(cowork, "superblocks.mcpb"), { mode: constants.COPYFILE_FICLONE });
   execFileSync(
     "python3",
