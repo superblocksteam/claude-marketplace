@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -25,6 +25,9 @@ class ChannelRepository {
     this.git("remote", "add", "origin", this.origin);
     this.write("package.json", { private: true });
     this.write(".github/workflows/channels.yml", "shared workflow\n");
+    cpSync(new URL("../.github/scripts", import.meta.url), join(this.checkout, ".github/scripts"), {
+      recursive: true,
+    });
     this.write("README.md", "shared documentation\n");
     this.write("shared.txt", "one\ntwo\nthree\n");
     this.write(`${plugin}/package.json`, {
@@ -146,6 +149,35 @@ writeFileSync("package-lock.json", JSON.stringify(lock, null, 2) + "\\n");
     return sha;
   }
 
+  command(command, name, argument) {
+    return execFileSync(
+      process.execPath,
+      [join(this.checkout, ".github/scripts/channel.mjs"), command, name, argument],
+      {
+        cwd: this.checkout,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, GITHUB_OUTPUT: join(this.directory, "github-output") },
+      },
+    );
+  }
+
+  prepareCommand(name, sourceSha) {
+    const output = this.command("prepare", name, sourceSha);
+    const result = JSON.parse(output.slice(output.lastIndexOf("{")).trim());
+    const githubOutput = readFileSync(join(this.directory, "github-output"), "utf8");
+    assert.ok(githubOutput.includes(`commit=${result.commit}\n`));
+    console.log(
+      "Forward prepare CLI observed:",
+      JSON.stringify({
+        output: output.trim(),
+        githubOutput,
+        parents: this.git("rev-list", "--parents", "-n", "1", result.commit),
+      }),
+    );
+    return result;
+  }
+
   forward(name) {
     return new ChannelBranch(Channel.named(name), this.checkout);
   }
@@ -163,7 +195,7 @@ test("forward merges carry shared changes main -> next -> master while pins stay
   repo.write("next-only.txt", "staging experiment\n");
   const previous = repo.commit("next", "staging work");
   const next = repo.forward("next");
-  const candidate = next.prepare(main);
+  const candidate = repo.prepareCommand("next", main);
   assert.equal(
     repo.git("rev-parse", "origin/next"),
     previous,
@@ -188,7 +220,7 @@ test("forward merges carry shared changes main -> next -> master while pins stay
   assert.equal(repo.json(candidate.commit, manifest).displayName, "Superblocks (next)");
   next.publish(candidate.commit);
   const dev = repo.forward("dev");
-  const master = dev.prepare(candidate.commit);
+  const master = repo.prepareCommand("dev", candidate.commit);
   dev.publish(master.commit);
   repo.git("merge-base", "--is-ancestor", main, master.commit);
   repo.git("merge-base", "--is-ancestor", candidate.commit, master.commit);
@@ -255,6 +287,16 @@ test("conflicting shared code, failed npm resolution, and concurrent updates nev
   const previous = repo.commit("next", "next change");
   const next = repo.forward("next");
   assert.throws(() => next.prepare(main), /conflict/i);
+  assert.throws(
+    () => repo.command("prepare", "next", main),
+    (error) => {
+      console.log(
+        "Forward prepare CLI conflict rejected:",
+        error.stderr.split("\n").find((line) => line.startsWith("Error:")),
+      );
+      return /Shared file conflict/.test(error.stderr);
+    },
+  );
   assert.equal(repo.git("rev-parse", "origin/next"), previous);
   console.log("Shared conflict rejected; destination preserved:", previous);
   repo.git("switch", "--quiet", "--detach", previous);
@@ -267,6 +309,16 @@ test("conflicting shared code, failed npm resolution, and concurrent updates nev
   repo.write("raced.txt", "new staging change\n");
   const advanced = repo.commit("next", "concurrent update");
   assert.throws(() => next.publish(candidate.commit), /advanced|changed|stale/i);
+  assert.throws(
+    () => repo.command("publish", "next", candidate.commit),
+    (error) => {
+      console.log(
+        "Forward publish CLI stale candidate rejected:",
+        error.stderr.split("\n").find((line) => line.startsWith("Error:")),
+      );
+      return /advanced; discard this stale candidate/.test(error.stderr);
+    },
+  );
   assert.equal(repo.git("rev-parse", "origin/next"), advanced);
   console.log("Concurrent update rejected; destination preserved:", advanced);
 });

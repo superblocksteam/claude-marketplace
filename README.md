@@ -127,9 +127,22 @@ Npm pin resolution uses only the package manifests in an isolated directory,
 with proxying disabled, TLS verification enabled, and GitHub write credentials
 removed from its environment.
 
-Superblocks' master publish automation can keep invoking `npm run update:dev`;
-successful updates now land directly on marketplace `master`. Existing pin PRs
-against `main` belong to the old model and should be closed without merging.
+The **Update dev CLI pin** workflow receives `cli-master-published` repository
+dispatches with `client_payload.cli_version`, or the same exact `cli_version`
+through a manual dispatch. It ignores events whose version no longer matches the
+npm master tag. A read-only job prepares the pin and branding, captures their
+SHA-256 digest, and runs full verification. A separate writer checks out the
+original source commit, independently reconstructs all four changed files, and
+pushes only if their digest matches and the tag is still current. It does not
+execute installed packages or consume files from the verification job.
+
+Merge the channel cascade first, then this receiver, and wait for both channel
+branches to receive the receiver code before enabling the Superblocks publish
+dispatcher. The publisher must stop checking out the old pinned updater revision;
+merging marketplace changes alone does not update that external reference.
+Existing pin PRs against `main` belong to the old model and should be closed
+without merging. The no-argument `npm run update:dev` remains available for a
+manual, fully validated direct update.
 
 ## Cowork releases
 

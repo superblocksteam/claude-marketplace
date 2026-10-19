@@ -103,6 +103,20 @@ export class Channel {
     ) {
       throw new Error("The plugin package and lockfile must pin the same exact CLI version.");
     }
+    for (const [path, entry] of Object.entries(lock.packages)) {
+      if (!path) continue;
+      const name = path.split("node_modules/").at(-1);
+      const expected =
+        !this.isPublic && name.startsWith("@superblocksteam/") ? GITHUB_PACKAGES : PUBLIC_NPM;
+      if (
+        entry.link ||
+        (entry.resolved && new URL(entry.resolved).origin !== new URL(expected).origin)
+      ) {
+        throw new Error(
+          `Unexpected package registry for ${path}; expected ${new URL(expected).origin}, got ${entry.resolved ? new URL(entry.resolved).origin : "link"}.`,
+        );
+      }
+    }
     return spec;
   }
 
@@ -150,7 +164,35 @@ export class Channel {
     }
   }
 
-  pinTo(root, spec = this.distTag) {
+  latestVersion(environment = process.env) {
+    return this.withNpm((cwd, env) => {
+      const output = execFileSync(
+        "npm",
+        [
+          "view",
+          `@superblocksteam/cli@${this.distTag}`,
+          "version",
+          "--json",
+          "--prefer-online",
+          ...this.npmArgs(),
+        ],
+        { cwd, env, encoding: "utf8" },
+      );
+      let version;
+      try {
+        version = JSON.parse(output);
+      } catch (cause) {
+        throw new Error(`npm view @superblocksteam/cli@${this.distTag} returned invalid JSON.`, {
+          cause,
+        });
+      }
+      if (!Channel.isExactVersion(version))
+        throw new Error(`Invalid CLI version: ${JSON.stringify(version)}`);
+      return version;
+    }, environment);
+  }
+
+  pinTo(root, spec = this.distTag, environment = process.env) {
     this.assertCurrent(root);
     if (spec !== this.distTag && !Channel.isExactVersion(spec))
       throw new Error(`Invalid CLI version: ${JSON.stringify(spec)}`);
@@ -178,7 +220,7 @@ export class Channel {
       if (Channel.isExactVersion(spec) && version !== spec)
         throw new Error(`CLI pin does not match the requested version ${spec}.`);
       for (const file of PIN_FILES) cpSync(join(pin, file), join(this.pinDirectory(root), file));
-    });
+    }, environment);
   }
 
   install(pluginDirectory) {

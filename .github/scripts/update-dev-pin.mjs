@@ -17,7 +17,7 @@ export class DevPinUpdate {
         env: { ...process.env, ...BOT, GIT_TERMINAL_PROMPT: "0" },
       }).trim();
     try {
-      const version = this.#latestVersion(channel);
+      const version = channel.latestVersion();
       execFileSync(
         "git",
         [
@@ -37,7 +37,7 @@ export class DevPinUpdate {
       channel.pinTo(checkout, version);
       channel.brand(checkout, previous);
       channel.verify(checkout, join(directory, "dist"));
-      if (this.#latestVersion(channel) !== version)
+      if (channel.latestVersion() !== version)
         throw new Error("The master CLI tag changed during verification; retry this stale update.");
       git(
         "add",
@@ -60,31 +60,5 @@ export class DevPinUpdate {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
-  }
-
-  #latestVersion(channel) {
-    return channel.withNpm((cwd, env) => {
-      const output = execFileSync(
-        "npm",
-        [
-          "view",
-          "@superblocksteam/cli@master",
-          "version",
-          "--json",
-          "--prefer-online",
-          ...channel.npmArgs(),
-        ],
-        { cwd, env, encoding: "utf8" },
-      );
-      let value;
-      try {
-        value = JSON.parse(output);
-      } catch (cause) {
-        throw new Error("npm view @superblocksteam/cli@master returned invalid JSON.", { cause });
-      }
-      if (!Channel.isExactVersion(value))
-        throw new Error(`Invalid CLI version: ${JSON.stringify(value)}`);
-      return value;
-    });
   }
 }

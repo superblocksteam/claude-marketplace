@@ -1,0 +1,8 @@
+self-hosted-runner:
+  labels:
+    - namespace-profile-2x4
+    - namespace-profile-macos
+paths:
+  .github/workflows/update-dev.yml:
+    ignore:
+      - unexpected key "queue" for "concurrency" section

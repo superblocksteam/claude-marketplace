@@ -75,24 +75,32 @@ test("non-production branding is idempotent and follows each code or CLI update"
   const directory = mkdtempSync(join(tmpdir(), "superblocks-channel-brand-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   new ChannelMarketplace(current, root).write(directory);
-  const next = Channel.named("next");
-  next.brand(directory, "0123456789abcdef");
-  next.brand(directory, "0123456789abcdef");
+  const channel = current.isMain ? Channel.named("next") : current;
+  channel.brand(directory, "0123456789abcdef");
+  channel.brand(directory, "0123456789abcdef");
   let manifest = readJson(join(directory, MANIFEST));
-  assert.equal(manifest.displayName, "Superblocks (next)");
-  assert.equal(manifest.version, `0.0.0-next.g0123456789ab.cli-${next.cliVersion(directory)}`);
-  next.brand(directory, "fedcba9876543210");
+  assert.equal(manifest.displayName, `Superblocks (${channel.name})`);
+  assert.equal(
+    manifest.version,
+    `0.0.0-${channel.name}.g0123456789ab.cli-${channel.cliVersion(directory)}`,
+  );
+  channel.brand(directory, "fedcba9876543210");
   const changed = readJson(join(directory, MANIFEST));
   assert.notEqual(changed.version, manifest.version);
   assert.equal(readJson(join(directory, MARKETPLACE)).plugins[0].version, changed.version);
   const pkg = readJson(join(directory, PLUGIN, "package.json"));
   pkg.dependencies["@superblocksteam/cli"] = "master";
   writeJson(join(directory, PLUGIN, "package.json"), pkg);
-  assert.throws(() => next.cliVersion(directory), /same exact CLI version/);
+  assert.throws(() => channel.cliVersion(directory), /same exact CLI version/);
 });
 
 test("only public channels may ship preinstalled release artifacts", () => {
   assert.doesNotThrow(() => Channel.named("beta").assertPublic());
   assert.doesNotThrow(() => Channel.named("next").assertPublic());
   assert.throws(() => Channel.named("dev").assertPublic(), /must not ship public artifacts/);
+});
+
+test("feature-targeted pull requests run the channel checks", () => {
+  const workflow = readFileSync(join(root, ".github/workflows/channels.yml"), "utf8");
+  assert.match(workflow, /pull_request: \{\}/);
 });
