@@ -1,6 +1,6 @@
 {
   "name": "superblocks",
-  "displayName": "Superblocks",
+  "displayName": "Superblocks (next)",
   "description": "Build, import, and manage Superblocks applications from Claude. Browser sign-in opens automatically.",
   "author": {
     "name": "Superblocks",
@@ -8,5 +8,5 @@
   },
   "homepage": "https://www.superblocks.com",
   "skills": "./skills/",
-  "version": "2.0.157-cowork.12"
+  "version": "0.0.0-next.gf0f5d37577e0.cli-2.0.171-next.0"
 }
