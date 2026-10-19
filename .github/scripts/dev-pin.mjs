@@ -38,7 +38,9 @@ export class DevPinUpdate {
     const prepared = this.prepare(version, env);
     if (!prepared.changed) return prepared;
     if (prepared.pinDigest !== pinDigest)
-      throw new Error("Reconstructed pin does not match the validated pin.");
+      throw new Error(
+        `Reconstructed pin does not match the validated pin: expected ${pinDigest}, got ${prepared.pinDigest}. Re-run validation before retrying.`,
+      );
     if (this.channel.latestVersion(env) !== version) {
       console.log(`Skipping CLI ${version}: @master has moved.`);
       return { changed: false, sourceSha: prepared.sourceSha };

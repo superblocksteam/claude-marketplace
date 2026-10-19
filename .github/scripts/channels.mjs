@@ -108,7 +108,10 @@ export class Channel {
   }
 
   validate(root, expectedBranch) {
-    if (expectedBranch && expectedBranch !== this.branch)
+    if (
+      Channel.#channels.some((channel) => channel.branch === expectedBranch) &&
+      expectedBranch !== this.branch
+    )
       throw new Error(
         `Marketplace ${this.marketplace} belongs on ${this.branch}; expected ${expectedBranch}.`,
       );

@@ -51,7 +51,8 @@ lockfile directly to `master`. It never opens a pin PR or writes another
 branch. Outdated events are skipped when the registry's `master` tag has moved;
 repeated versions do nothing. Concurrent branch changes reject the push rather
 than being overwritten. Retry the workflow to validate against the new branch tip.
-The workflow can also be run manually with an exact published CLI version.
+Failures appear in GitHub Actions. After fixing the cause, run the workflow
+manually with the current published CLI version; there is no periodic retry.
 
 ## Cowork releases
 

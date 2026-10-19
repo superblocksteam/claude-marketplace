@@ -114,6 +114,7 @@ else if (args[0] === "install") {
     };
     assert.equal(channel.pinTo(checkout, "3.0.1", env), true);
     channel.validate(checkout, channel.branch);
+    assert.doesNotThrow(() => channel.validate(checkout, "feature/shared-plugin-change"));
     assert.throws(
       () => channel.validate(checkout, channel.branch === "next" ? "main" : "next"),
       /belongs on .*expected/,

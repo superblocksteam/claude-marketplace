@@ -21,12 +21,12 @@ test("the writer reconstructs the validated pin without consuming files from pac
     join(bin, "npm"),
     `#!${process.execPath}
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 assert.equal(process.env.GH_TOKEN, undefined);
 assert.equal(process.env.GITHUB_TOKEN, undefined);
 const args = process.argv.slice(2);
 assert.ok(args.includes("--ignore-scripts"));
-if (args[0] === "view") console.log(JSON.stringify(process.env.FIXTURE_TAG || "3.0.1"));
+if (args[0] === "view") console.log(JSON.stringify(process.env.FIXTURE_ADVANCE_TAG && existsSync(process.env.FIXTURE_ADVANCE_TAG) ? "3.0.2" : process.env.FIXTURE_TAG || "3.0.1"));
 else {
   assert.ok(args.includes("--package-lock-only"));
   const pin = JSON.parse(readFileSync("package.json"));
@@ -42,6 +42,7 @@ else {
   if (process.env.FIXTURE_CORRUPT === "registry") lock.packages["node_modules/@superblocksteam/cli"].resolved = "https://registry.npmjs.org/cli.tgz";
   writeFileSync("package.json", JSON.stringify(pin, null, 2) + "\\n");
   writeFileSync("package-lock.json", JSON.stringify(lock, null, 2) + "\\n");
+  if (process.env.FIXTURE_ADVANCE_TAG) writeFileSync(process.env.FIXTURE_ADVANCE_TAG, "3.0.2");
 }
 `,
     { mode: 0o755 },
@@ -135,7 +136,7 @@ else {
         ...env,
         FIXTURE_DIFFERENT_LOCK: "1",
       }),
-    /does not match the validated pin/,
+    /does not match the validated pin: expected [a-f0-9]{64}, got [a-f0-9]{64}/,
   );
   assert.equal(git(origin, "rev-parse", "master"), result.commit);
   resetWriter();
@@ -156,6 +157,20 @@ else {
   });
   assert.equal(skipped.changed, false);
   assert.equal(git(origin, "rev-parse", "master"), result.commit);
+  git(origin, "update-ref", "refs/heads/master", parent);
+  const advancedDuringInstall = new DevPinUpdate(writer).publish("3.0.1", prepared.pinDigest, {
+    ...env,
+    FIXTURE_ADVANCE_TAG: join(directory, "advanced-tag"),
+  });
+  assert.equal(advancedDuringInstall.changed, false);
+  assert.equal(git(writer, "rev-parse", "HEAD"), parent);
+  assert.equal(git(origin, "rev-parse", "master"), parent);
+  console.log(
+    "Skipped tag moved during writer resolution:",
+    JSON.stringify({ initialTag: "3.0.1", finalTag: "3.0.2", remoteMaster: parent }),
+  );
+  git(origin, "update-ref", "refs/heads/master", result.commit);
+  resetWriter();
   git(checkout, "fetch", "--quiet", "origin", "master");
   git(checkout, "reset", "--quiet", "--hard", result.commit);
   writeFileSync(join(checkout, "concurrent.txt"), "preserve concurrent work\n");
