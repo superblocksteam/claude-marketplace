@@ -1,0 +1,69 @@
+name: Update dev CLI pin
+permissions:
+  contents: read
+concurrency:
+  group: dev-cli-pin
+  cancel-in-progress: false
+  queue: max
+jobs:
+  prepare:
+    runs-on: namespace-profile-2x4
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.pin.outputs.changed }}
+      source_sha: ${{ steps.pin.outputs.source_sha }}
+      pin_digest: ${{ steps.pin.outputs.pin_digest }}
+    steps:
+      - uses: namespacelabs/nscloud-checkout-action@66f2dc6f6c42a8ac6c4e53473c4840006822831e # v9.0.1
+        with:
+          ref: master
+          persist-credentials: false
+      - &id001
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Install locked packaging tools
+        run: npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/
+      - name: Prepare the exact published CLI pin
+        id: pin
+        env:
+          CLI_VERSION: ${{ github.event.client_payload.cli_version || inputs.cli_version }}
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+        run: node .github/scripts/update-dev.mjs prepare "$CLI_VERSION"
+      - name: Validate the prepared dev plugin and MCP startup
+        if: steps.pin.outputs.changed == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+        run: node .github/scripts/channel.mjs verify dev "$RUNNER_TEMP/dev-pin-dist"
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: namespace-profile-2x4
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: namespacelabs/nscloud-checkout-action@66f2dc6f6c42a8ac6c4e53473c4840006822831e # v9.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - *id001
+      - name: Push the validated pin to master
+        run: node .github/scripts/update-dev.mjs publish "$CLI_VERSION" "$PIN_DIGEST"
+        env:
+          CLI_VERSION: ${{ github.event.client_payload.cli_version || inputs.cli_version }}
+          PIN_DIGEST: ${{ needs.prepare.outputs.pin_digest }}
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+"on":
+  repository_dispatch:
+    types:
+      - cli-master-published
+  workflow_dispatch:
+    inputs:
+      cli_version:
+        description: Exact published CLI @master version
+        required: true
+        type: string
