@@ -5,6 +5,12 @@ name: Channel
       channel:
         type: string
         required: true
+      ref:
+        type: string
+        default: ""
+      forward-from:
+        type: string
+        default: ""
       runner:
         type: string
         default: ubuntu-latest
@@ -14,43 +20,52 @@ name: Channel
     secrets:
       github-packages-token:
         required: false
-permissions:
-  contents: read
+    outputs:
+      commit:
+        value: ${{ jobs.build.outputs.commit }}
 jobs:
   build:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
-    permissions:
-      contents: read
+    outputs:
+      commit: ${{ steps.commit.outputs.commit }}
     env:
       CHANNEL: ${{ inputs.channel }}
-      MARKETPLACE: ${{ github.workspace }}/channel-marketplace
+      DIST: ${{ github.workspace }}/channel-dist
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
           persist-credentials: "false"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
-      - name: Install locked packaging tools
-        run: npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/
-      - name: Test plugin, channels, and packaging
-        run: node --test tests/*.test.mjs
-      - name: Write the channel marketplace
-        run: node .github/scripts/channel.mjs marketplace "$CHANNEL" "$MARKETPLACE" "$GITHUB_SHA"
-      - name: Install the channel's locked CLI
+      - name: Prepare a forward merge without publishing
+        id: prepare
+        if: inputs.forward-from != ''
+        env:
+          SOURCE_SHA: ${{ inputs.forward-from }}
+          NODE_AUTH_TOKEN: ${{ secrets.github-packages-token }}
+        run: node .github/scripts/channel.mjs prepare "$CHANNEL" "$SOURCE_SHA"
+      - name: Check out the candidate
+        if: inputs.forward-from != ''
+        env:
+          CANDIDATE: ${{ steps.prepare.outputs.commit }}
+        run: git checkout --detach "$CANDIDATE"
+      - name: Record the exact commit
+        id: commit
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Verify locked dependencies, tests, packaging, and MCP startup
         env:
           NODE_AUTH_TOKEN: ${{ secrets.github-packages-token }}
-        run: |
-          if [[ -n "${NODE_AUTH_TOKEN}" ]]; then
-            printf '%s\n' "//npm.pkg.github.com/:_authToken=\${NODE_AUTH_TOKEN}" > "${RUNNER_TEMP}/channel.npmrc"
-            export NPM_CONFIG_USERCONFIG="${RUNNER_TEMP}/channel.npmrc"
-          fi
-          node .github/scripts/channel.mjs install "$CHANNEL" "$MARKETPLACE/plugins/superblocks-plugin"
-      - name: Build Cowork ZIP and standalone MCPB
-        run: node .github/scripts/build-mcpb.mjs "$MARKETPLACE/plugins/superblocks-plugin" dist "$CHANNEL"
-      - name: Require credentialless startup and Login
-        run: python3 .github/scripts/smoke-mcpb.py dist/*.mcpb
+        run: node .github/scripts/channel.mjs verify "$CHANNEL" "$DIST"
+      - name: Publish the verified merge
+        if: inputs.forward-from != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ steps.commit.outputs.commit }}
+        run: node .github/scripts/channel.mjs publish "$CHANNEL" "$CANDIDATE"
       - name: Refuse public artifacts for private channels
         if: inputs.upload
         run: node .github/scripts/channel.mjs assert-public "$CHANNEL"
@@ -58,8 +73,8 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cowork-${{ inputs.channel }}
-          path: |-
-            dist/*.zip
-            dist/*.mcpb
+          path: "${{ env.DIST }}/*.zip
+
+            ${{ env.DIST }}/*.mcpb"
           if-no-files-found: error
           retention-days: 1

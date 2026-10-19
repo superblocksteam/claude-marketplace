@@ -1,9 +1,15 @@
 name: Channels
 "on":
-  pull_request: {}
+  pull_request:
+    branches:
+      - main
+      - next
+      - master
   push:
     branches:
       - main
+      - next
+      - master
   workflow_dispatch: {}
 permissions:
   contents: read
@@ -11,45 +17,37 @@ concurrency:
   group: channels-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  beta:
+  check:
     uses: ./.github/workflows/channel.yml
     with:
-      channel: beta
-  next:
+      channel:
+        ${{ (github.base_ref || github.ref_name) == 'master' && 'dev' || (github.base_ref || github.ref_name)
+        == 'next' && 'next' || 'beta' }}
+    secrets:
+      github-packages-token: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+  forward-next:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: check
+    permissions:
+      contents: write
     uses: ./.github/workflows/channel.yml
     with:
       channel: next
-  dev:
+      forward-from: ${{ github.sha }}
+  forward-dev:
+    if:
+      ${{ always() && !cancelled() && github.event_name != 'pull_request' && needs.check.result == 'success' &&
+      ((github.ref == 'refs/heads/main' && needs.forward-next.result == 'success') || github.ref == 'refs/heads/next')
+      }}
+    needs:
+      - check
+      - forward-next
+    permissions:
+      contents: write
     uses: ./.github/workflows/channel.yml
     with:
       channel: dev
+      ref: ${{ needs.forward-next.outputs.commit || github.sha }}
+      forward-from: ${{ needs.forward-next.outputs.commit || github.sha }}
     secrets:
       github-packages-token: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
-  publish-next:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: next
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "24"
-      - name: Publish the next marketplace branch
-        run: node .github/scripts/channel.mjs publish next "$GITHUB_SHA"
-  publish-dev:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: dev
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "24"
-      - name: Publish the dev marketplace branch
-        run: node .github/scripts/channel.mjs publish dev "$GITHUB_SHA"
