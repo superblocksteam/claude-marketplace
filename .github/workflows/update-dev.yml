@@ -1,0 +1,86 @@
+name: Update dev CLI pin
+on:
+  repository_dispatch:
+    types:
+      - cli-master-published
+  workflow_dispatch:
+    inputs:
+      cli_version:
+        description: Exact published CLI @master version
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: dev-cli-pin
+  cancel-in-progress: false
+  queue: max
+jobs:
+  prepare:
+    runs-on: namespace-profile-2x4
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.pin.outputs.changed }}
+      source_sha: ${{ steps.pin.outputs.source_sha }}
+    steps:
+      - uses: namespacelabs/nscloud-checkout-action@66f2dc6f6c42a8ac6c4e53473c4840006822831e # v9.0.1
+        with:
+          ref: master
+          persist-credentials: false
+      - &a1
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Install locked packaging tools
+        run: npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/
+      - name: Prepare the exact published CLI pin
+        id: pin
+        env:
+          CLI_VERSION: ${{ github.event.client_payload.cli_version || inputs.cli_version }}
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+        run: node .github/scripts/update-dev.mjs prepare "$CLI_VERSION" "$RUNNER_TEMP/dev-pin.patch"
+      - name: Test plugin, pins, and packaging
+        run: npm test
+        if: steps.pin.outputs.changed == 'true'
+      - name: Install the locked CLI
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+        run: node .github/scripts/channel.mjs install
+        if: steps.pin.outputs.changed == 'true'
+      - name: Build Cowork ZIP and standalone MCPB
+        run: node .github/scripts/build-mcpb.mjs plugins/superblocks-plugin dist "$CHANNEL"
+        if: steps.pin.outputs.changed == 'true'
+        env:
+          CHANNEL: dev
+      - name: Require credentialless startup and Login
+        run: python3 .github/scripts/smoke-mcpb.py dist/*.mcpb
+        if: steps.pin.outputs.changed == 'true'
+      - name: Save the validated pin patch
+        if: steps.pin.outputs.changed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dev-pin
+          path: ${{ runner.temp }}/dev-pin.patch
+          if-no-files-found: error
+          retention-days: 1
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: namespace-profile-2x4
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: namespacelabs/nscloud-checkout-action@66f2dc6f6c42a8ac6c4e53473c4840006822831e # v9.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: true
+      - *a1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dev-pin
+          path: ${{ runner.temp }}/dev-pin
+      - name: Push the validated pin to master
+        run: node .github/scripts/update-dev.mjs publish "$RUNNER_TEMP/dev-pin/dev-pin.patch"

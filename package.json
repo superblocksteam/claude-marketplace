@@ -1,0 +1,11 @@
+{
+  "name": "superblocks-claude-marketplace",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "pin": "node .github/scripts/channel.mjs pin"
+  },
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2"
+  }
+}

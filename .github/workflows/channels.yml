@@ -1,0 +1,19 @@
+name: Channel checks
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+      - next
+      - master
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: channel-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  check:
+    uses: ./.github/workflows/channel.yml
+    secrets:
+      github-packages-token: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
