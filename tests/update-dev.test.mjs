@@ -1,198 +1,218 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
-import { DevPinUpdate } from "../.github/scripts/dev-pin.mjs";
+import { DevPinUpdate } from "../.github/scripts/update-dev-pin.mjs";
 
-const root = fileURLToPath(new URL("..", import.meta.url));
+const plugin = "plugins/superblocks-plugin";
 
-test("the writer reconstructs the validated pin without consuming files from package execution", (t) => {
-  const directory = mkdtempSync(join(tmpdir(), "superblocks-dev-publish-"));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+test("dev publishes a verified pin directly to master, leaving main and the caller's checkout untouched", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-dev-update-"));
+  const environment = { ...process.env };
+  t.after(() => {
+    process.env = environment;
+    rmSync(directory, { recursive: true, force: true });
+  });
   const origin = join(directory, "origin.git");
   const checkout = join(directory, "checkout");
   const bin = join(directory, "bin");
+  const stateFile = join(directory, "state.json");
+  const callsFile = join(directory, "calls.jsonl");
+  const git = (...args) =>
+    execFileSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", ...args], {
+      cwd: checkout,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+  mkdirSync(checkout);
   mkdirSync(bin);
+  git("init", "--quiet", "--bare", origin);
+  git("init", "--quiet", "--initial-branch=master");
+  git("remote", "add", "origin", origin);
+  const write = (path, value) => {
+    const destination = join(checkout, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(
+      destination,
+      typeof value === "string" ? value : JSON.stringify(value, null, 2) + "\n",
+    );
+  };
+  write("package.json", { private: true });
+  write("README.md", "tracked documentation\n");
+  write(`${plugin}/package.json`, { dependencies: { "@superblocksteam/cli": "1.0.0" } });
+  write(`${plugin}/package-lock.json`, {
+    packages: {
+      "": { dependencies: { "@superblocksteam/cli": "1.0.0" } },
+      "node_modules/@superblocksteam/cli": { version: "1.0.0" },
+    },
+  });
+  write(`${plugin}/.npmrc`, "https-proxy=https://untrusted.invalid/\nstrict-ssl=false\n");
+  write(`${plugin}/.claude-plugin/plugin.json`, {
+    name: "superblocks",
+    displayName: "Superblocks (dev)",
+    version: "1.0.0",
+  });
+  write(".claude-plugin/marketplace.json", {
+    name: "superblocks-dev",
+    plugins: [{ name: "superblocks", displayName: "Superblocks (dev)", version: "1.0.0" }],
+  });
+  write(
+    "tests/installed/dependency-security.test.mjs",
+    "import assert from 'node:assert/strict'; assert.ok(process.env.TEST_PLUGIN_DIRECTORY); assert.equal(process.env.GH_TOKEN, undefined);\n",
+  );
+  write(
+    ".github/scripts/build-mcpb.mjs",
+    "import { mkdirSync, writeFileSync } from 'node:fs'; import { join } from 'node:path'; mkdirSync(process.argv[3], {recursive:true}); writeFileSync(join(process.argv[3], 'fixture.mcpb'), 'test bundle');\n",
+  );
+  write(".github/scripts/smoke-mcpb.py", "fixture smoke boundary\n");
+  git("add", ".");
+  git("commit", "--quiet", "-m", "initial master");
+  git("push", "--quiet", "origin", "master", "HEAD:refs/heads/main");
+  const main = git("rev-parse", "HEAD");
+  write("uncommitted.txt", "leave this alone\n");
+  const config = join(directory, "gitconfig");
+  writeFileSync(
+    config,
+    `[url "file://${origin}"]\n insteadOf = https://github.com/superblocksteam/claude-marketplace.git\n`,
+  );
+  Object.assign(process.env, {
+    PATH: `${bin}:${process.env.PATH}`,
+    GIT_CONFIG_GLOBAL: config,
+    DEV_STATE: stateFile,
+    DEV_CALLS: callsFile,
+    GH_TOKEN: "fixture-write-token",
+    NODE_AUTH_TOKEN: "fixture-read-token",
+  });
+  delete process.env.NODE_TEST_CONTEXT;
+  const common = String.raw`
+import assert from "node:assert/strict";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+const args = process.argv.slice(2);
+const state = JSON.parse(readFileSync(process.env.DEV_STATE, "utf8"));
+appendFileSync(process.env.DEV_CALLS, JSON.stringify({ command: process.argv[1].split("/").pop(), args, token: process.env.GH_TOKEN, projectNpmrc: existsSync(".npmrc"), proxy: process.env.npm_config_https_proxy, tls: process.env.npm_config_strict_ssl }) + "\n");
+assert.equal(process.env.GH_TOKEN, undefined);
+`;
   writeFileSync(
     join(bin, "npm"),
-    `#!${process.execPath}
-import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-assert.equal(process.env.GH_TOKEN, undefined);
-assert.equal(process.env.GITHUB_TOKEN, undefined);
-const args = process.argv.slice(2);
-assert.ok(args.includes("--ignore-scripts"));
-if (args[0] === "view") console.log(JSON.stringify(process.env.FIXTURE_ADVANCE_TAG && existsSync(process.env.FIXTURE_ADVANCE_TAG) ? "3.0.2" : process.env.FIXTURE_TAG || "3.0.1"));
-else {
-  assert.ok(args.includes("--package-lock-only"));
-  const pin = JSON.parse(readFileSync("package.json"));
-  const lock = JSON.parse(readFileSync("package-lock.json"));
-  pin.dependencies["@superblocksteam/cli"] = "3.0.1";
-  lock.packages[""].dependencies["@superblocksteam/cli"] = "3.0.1";
-  lock.packages["node_modules/@superblocksteam/cli"].version = "3.0.1";
-  if (process.env.FIXTURE_DIFFERENT_LOCK) lock.packages["node_modules/@superblocksteam/cli"].integrity = "sha512-different";
-  if (process.env.FIXTURE_CORRUPT === "dependency") lock.packages[""].dependencies["@superblocksteam/cli"] = "3.0.0";
-  if (process.env.FIXTURE_CORRUPT === "nested") lock.packages["node_modules/outer/node_modules/@superblocksteam/sdk-api"] = { version: "1.0.0", resolved: "https://registry.npmjs.org/sdk.tgz" };
-  const sources = { file: "file:../escape", git: "git+https://github.com/example/untrusted.git", link: "link:../escape" };
-  if (sources[process.env.FIXTURE_CORRUPT]) lock.packages["node_modules/outer"] = { version: "1.0.0", resolved: sources[process.env.FIXTURE_CORRUPT] };
-  if (process.env.FIXTURE_CORRUPT === "registry") lock.packages["node_modules/@superblocksteam/cli"].resolved = "https://registry.npmjs.org/cli.tgz";
-  writeFileSync("package.json", JSON.stringify(pin, null, 2) + "\\n");
-  writeFileSync("package-lock.json", JSON.stringify(lock, null, 2) + "\\n");
-  if (process.env.FIXTURE_ADVANCE_TAG) writeFileSync(process.env.FIXTURE_ADVANCE_TAG, "3.0.2");
+    `#!${process.execPath}\n${common}
+if (args[0] === "view") {
+  state.reads = (state.reads ?? 0) + 1;
+  writeFileSync(process.env.DEV_STATE, JSON.stringify(state));
+  console.log(state.rawVersion ?? JSON.stringify(state.reads > 1 && state.versionAfter ? state.versionAfter : state.version));
+}
+else if (args[0] === "install") {
+  assert.equal(existsSync(".npmrc"), false);
+  assert.equal(args[1], "@superblocksteam/cli@" + state.version);
+  assert.ok(args.includes("--ignore-scripts"));
+  if (state.failPin) process.exit(17);
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+  pkg.dependencies["@superblocksteam/cli"] = state.version;
+  lock.packages["node_modules/@superblocksteam/cli"].version = state.version;
+  if (!state.corruptPin) lock.packages[""].dependencies["@superblocksteam/cli"] = state.version;
+  writeFileSync("package.json", JSON.stringify(pkg));
+  writeFileSync("package-lock.json", JSON.stringify(lock));
+} else if (args[0] === "test" && state.failVerify) process.exit(18);
+else if (!["test", "ci", "update"].includes(args[0])) process.exit(2);
+`,
+    { mode: 0o755 },
+  );
+  writeFileSync(
+    join(bin, "python3"),
+    `#!${process.execPath}\n${common}
+assert.equal(readFileSync(args[1], "utf8"), "test bundle");
+if (state.failSmoke) process.exit(19);
+if (state.advanceDuringSmoke) {
+  const env = { ...process.env, GIT_AUTHOR_NAME: "test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "test", GIT_COMMITTER_EMAIL: "test@example.com" };
+  const git = (...args) => execFileSync("git", ["--git-dir", state.origin, ...args], { env, encoding: "utf8" }).trim();
+  const previous = git("rev-parse", "master");
+  const commit = git("commit-tree", git("rev-parse", "master^{tree}"), "-p", previous, "-m", "concurrent dev update");
+  git("update-ref", "refs/heads/master", commit, previous);
 }
 `,
     { mode: 0o755 },
   );
-  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_TOKEN: "fixture-write" };
-  const git = (cwd, ...args) =>
-    execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-  const identity = ["-c", "user.name=fixture", "-c", "user.email=fixture@example.com"];
-  git(directory, "init", "--quiet", "--bare", origin);
-  mkdirSync(checkout);
-  git(checkout, "init", "--quiet", "--initial-branch=master");
-  git(checkout, "remote", "add", "origin", origin);
-  for (const path of [".claude-plugin", "plugins"])
-    cpSync(join(root, path), join(checkout, path), {
-      recursive: true,
-      filter: (source) => !source.split("/").includes("node_modules"),
-    });
-  const json = (path) => JSON.parse(readFileSync(join(checkout, path), "utf8"));
-  const write = (path, value) =>
-    writeFileSync(join(checkout, path), JSON.stringify(value, null, 2) + "\n");
-  const packagePath = "plugins/superblocks-plugin/package.json";
-  const lockPath = "plugins/superblocks-plugin/package-lock.json";
-  const manifestPath = "plugins/superblocks-plugin/.claude-plugin/plugin.json";
-  const marketplace = json(".claude-plugin/marketplace.json");
-  marketplace.name = "superblocks-dev";
-  write(".claude-plugin/marketplace.json", marketplace);
-  const lock = json(lockPath);
-  for (const [path, entry] of Object.entries(lock.packages)) {
-    if (path.split("node_modules/").at(-1).startsWith("@superblocksteam/"))
-      entry.resolved = "https://npm.pkg.github.com/fixture.tgz";
-  }
-  write(lockPath, lock);
-  git(checkout, "add", ".");
-  git(checkout, ...identity, "commit", "--quiet", "-m", "initial");
-  for (const branch of ["main", "next", "master"])
-    git(checkout, "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
-  const parent = git(checkout, "rev-parse", "HEAD");
-  const prepared = new DevPinUpdate(checkout).prepare("3.0.1", env);
-  assert.equal(prepared.changed, true);
-  assert.match(prepared.pinDigest, /^[a-f0-9]{64}$/);
-  // Package code runs after prepare and can mutate every file in this checkout.
-  const injected = json(manifestPath);
-  injected.hooks = { SessionStart: [{ hooks: [{ type: "command", command: "untrusted" }] }] };
-  write(manifestPath, injected);
-  const changedPin = json(packagePath);
-  changedPin.dependencies.untrusted = "1.0.0";
-  write(packagePath, changedPin);
-  const writer = join(directory, "writer");
-  git(directory, "clone", "--quiet", "--branch", "master", origin, writer);
-  git(writer, "checkout", "--quiet", "--detach", prepared.sourceSha);
-  const result = new DevPinUpdate(writer).publish("3.0.1", prepared.pinDigest, env);
-  assert.equal(git(origin, "rev-parse", "master^"), parent);
-  assert.equal(git(origin, "rev-parse", "master"), result.commit);
-  assert.equal(git(origin, "rev-parse", "main"), parent);
-  assert.equal(git(origin, "rev-parse", "next"), parent);
-  assert.deepEqual(result.files, [lockPath, packagePath]);
-  assert.equal(JSON.parse(git(origin, "show", `master:${manifestPath}`)).hooks, undefined);
+  const state = (value) => writeFileSync(stateFile, JSON.stringify(value));
+  const tip = () => {
+    git("fetch", "--quiet", "origin", "master");
+    return git("rev-parse", "FETCH_HEAD");
+  };
+  const update = new DevPinUpdate();
+  state({ version: "1.0.1" });
+  assert.match(update.publish(), /master now pins 1\.0\.1/);
+  const published = tip();
   assert.equal(
-    JSON.parse(git(origin, "show", `master:${packagePath}`)).dependencies.untrusted,
-    undefined,
+    JSON.parse(git("show", `${published}:${plugin}/package.json`)).dependencies[
+      "@superblocksteam/cli"
+    ],
+    "1.0.1",
   );
-  console.log("Published dev pin:", JSON.stringify(result));
-
-  const resetWriter = () => git(writer, "reset", "--quiet", "--hard", parent);
-  resetWriter();
-  for (const corrupt of ["dependency", "registry", "nested", "file", "git", "link"]) {
-    assert.throws(
-      () =>
-        new DevPinUpdate(writer).publish("3.0.1", prepared.pinDigest, {
-          ...env,
-          FIXTURE_CORRUPT: corrupt,
-        }),
-      corrupt === "dependency"
-        ? /pin does not match/
-        : /Unexpected package registry.*expected https:\/\/(npm.pkg.github.com|registry.npmjs.org), got (https:\/\/registry.npmjs.org|null)/,
-    );
-    console.log(
-      "Rejected lock input:",
-      JSON.stringify({
-        corrupt,
-        writerStatus: git(writer, "status", "--porcelain"),
-        remoteMaster: git(origin, "rev-parse", "master"),
-      }),
-    );
-    assert.equal(git(writer, "status", "--porcelain"), "");
-    assert.equal(git(origin, "rev-parse", "master"), result.commit);
-  }
-  assert.throws(
-    () =>
-      new DevPinUpdate(writer).publish("3.0.1", prepared.pinDigest, {
-        ...env,
-        FIXTURE_DIFFERENT_LOCK: "1",
-      }),
-    /does not match the validated pin: expected [a-f0-9]{64}, got [a-f0-9]{64}/,
+  assert.equal(git("ls-remote", "origin", "refs/heads/main").split(/\s/)[0], main);
+  assert.equal(git("status", "--short"), "?? uncommitted.txt");
+  const calls = readFileSync(callsFile, "utf8").trim().split("\n").map(JSON.parse);
+  assert.ok(calls.every((call) => call.token === undefined));
+  assert.ok(calls.some((call) => call.command === "python3"));
+  assert.ok(
+    calls
+      .filter((call) => call.command === "npm")
+      .every((call) => call.proxy === "null" && call.tls === "true"),
   );
-  assert.equal(git(origin, "rev-parse", "master"), result.commit);
-  resetWriter();
-  const oldManifest = JSON.parse(git(writer, "show", `HEAD:${manifestPath}`));
-  oldManifest.version = "1.0.0";
-  writeFileSync(join(writer, manifestPath), JSON.stringify(oldManifest));
-  git(writer, "add", ".");
-  git(writer, ...identity, "commit", "--quiet", "-m", "invalid fixed version");
-  assert.throws(
-    () => new DevPinUpdate(writer).publish("3.0.1", prepared.pinDigest, env),
-    /must omit version/,
-  );
-  assert.equal(git(origin, "rev-parse", "master"), result.commit);
-  resetWriter();
-  const skipped = new DevPinUpdate(writer).publish("3.0.1", prepared.pinDigest, {
-    ...env,
-    FIXTURE_TAG: "3.0.2",
-  });
-  assert.equal(skipped.changed, false);
-  assert.equal(git(origin, "rev-parse", "master"), result.commit);
-  git(origin, "update-ref", "refs/heads/master", parent);
-  const advancedDuringInstall = new DevPinUpdate(writer).publish("3.0.1", prepared.pinDigest, {
-    ...env,
-    FIXTURE_ADVANCE_TAG: join(directory, "advanced-tag"),
-  });
-  assert.equal(advancedDuringInstall.changed, false);
-  assert.equal(git(writer, "rev-parse", "HEAD"), parent);
-  assert.equal(git(origin, "rev-parse", "master"), parent);
+  assert.match(update.publish(), /already pins 1\.0\.1/);
+  assert.equal(tip(), published);
   console.log(
-    "Skipped tag moved during writer resolution:",
-    JSON.stringify({ initialTag: "3.0.1", finalTag: "3.0.2", remoteMaster: parent }),
-  );
-  git(origin, "update-ref", "refs/heads/master", result.commit);
-  resetWriter();
-  git(checkout, "fetch", "--quiet", "origin", "master");
-  git(checkout, "reset", "--quiet", "--hard", result.commit);
-  writeFileSync(join(checkout, "concurrent.txt"), "preserve concurrent work\n");
-  git(checkout, "add", ".");
-  git(checkout, ...identity, "commit", "--quiet", "-m", "concurrent change");
-  git(checkout, "push", "--quiet", "origin", "HEAD:refs/heads/master");
-  const concurrent = git(origin, "rev-parse", "master");
-  assert.throws(
-    () => new DevPinUpdate(writer).publish("3.0.1", prepared.pinDigest, env),
-    /Command failed: git.*push/s,
-  );
-  assert.equal(git(origin, "rev-parse", "master"), concurrent);
-  console.log(
-    "Rejected writer changes:",
+    "Direct dev update observed:",
     JSON.stringify({
-      badDependency: true,
-      wrongRegistry: true,
-      changedResolution: true,
-      fixedVersion: true,
-      staleEvent: true,
-      staleParent: true,
-      remoteMaster: concurrent,
+      main,
+      master: published,
+      pin: JSON.parse(git("show", `${published}:${plugin}/package.json`)).dependencies,
+      checkout: git("status", "--short"),
+      boundaryCalls: calls.map(({ command, args }) => ({ command, args })),
     }),
   );
+  for (const failure of ["failPin", "corruptPin", "failVerify", "failSmoke"]) {
+    state({ version: "1.0.2", [failure]: true });
+    assert.throws(() => update.publish());
+    assert.equal(tip(), published);
+    console.log("Dev update rejected; master preserved:", failure, published);
+  }
+  for (const version of [
+    "master",
+    "^1.0.2",
+    "1.0",
+    "1.0.2/other",
+    ["1.0.2"],
+    "01.0.2",
+    "1.0.2-next.01",
+    "1.0.2\n",
+  ]) {
+    state({ version });
+    assert.throws(() => update.publish(), /Invalid CLI version/);
+    assert.equal(tip(), published);
+  }
+  for (const rawVersion of ["", "not JSON"]) {
+    state({ rawVersion });
+    assert.throws(() => update.publish(), /invalid JSON/);
+  }
+  state({ version: "1.0.2", versionAfter: "1.0.3" });
+  assert.throws(
+    () => update.publish(),
+    (error) => {
+      console.log("Dev stale registry tag rejected:", error.message);
+      return /changed|stale/i.test(error.message);
+    },
+  );
+  assert.equal(tip(), published);
+  state({ version: "1.0.4", advanceDuringSmoke: true, origin });
+  assert.throws(() => update.publish(), /git .*push/);
+  const raced = tip();
+  assert.notEqual(raced, published);
+  assert.equal(
+    JSON.parse(git("show", `${raced}:${plugin}/package.json`)).dependencies["@superblocksteam/cli"],
+    "1.0.1",
+  );
+  console.log("Dev concurrent push rejected; existing CLI pin preserved:", raced);
 });

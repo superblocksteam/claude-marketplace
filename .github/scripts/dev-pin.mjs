@@ -3,13 +3,10 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { Channel } from "./channels.mjs";
+import { BOT, Channel, MANIFEST, MARKETPLACE, PLUGIN } from "./channels.mjs";
 
-export class DevPinUpdate {
-  static files = [
-    "plugins/superblocks-plugin/package-lock.json",
-    "plugins/superblocks-plugin/package.json",
-  ];
+export class DevPinDispatch {
+  static files = [MARKETPLACE, MANIFEST, `${PLUGIN}/package-lock.json`, `${PLUGIN}/package.json`];
 
   constructor(root) {
     this.root = root;
@@ -20,17 +17,20 @@ export class DevPinUpdate {
     if (!Channel.isExactVersion(version))
       throw new Error(`Invalid CLI version: ${JSON.stringify(version)}`);
     if (this.#git("status", "--porcelain")) throw new Error("Dev pin checkout must be clean.");
-    this.channel.validate(this.root, "master");
+    this.channel.assertCurrent(this.root);
+    this.channel.cliVersion(this.root);
     const sourceSha = this.#git("rev-parse", "HEAD");
     if (this.channel.latestVersion(env) !== version) {
       console.log(`Skipping CLI ${version}: @master has moved.`);
       return { changed: false, sourceSha };
     }
-    const changed = this.channel.pinTo(this.root, version, env);
+    if (this.channel.cliVersion(this.root) === version) return { changed: false, sourceSha };
+    this.channel.pinTo(this.root, version, env);
+    this.channel.brand(this.root, sourceSha);
     const digest = createHash("sha256");
-    for (const file of DevPinUpdate.files)
+    for (const file of DevPinDispatch.files)
       digest.update(readFileSync(join(this.root, file))).update("\0");
-    return { changed, sourceSha, pinDigest: digest.digest("hex") };
+    return { changed: true, sourceSha, pinDigest: digest.digest("hex") };
   }
 
   publish(version, pinDigest, env = process.env) {
@@ -45,7 +45,7 @@ export class DevPinUpdate {
       console.log(`Skipping CLI ${version}: @master has moved.`);
       return { changed: false, sourceSha: prepared.sourceSha };
     }
-    this.#git("add", "--", ...DevPinUpdate.files);
+    this.#git("add", "--", ...DevPinDispatch.files);
     this.#git(
       "-c",
       "user.name=github-actions[bot]",
@@ -65,7 +65,7 @@ export class DevPinUpdate {
       "origin",
       "HEAD:refs/heads/master",
     );
-    return { commit: this.#git("rev-parse", "HEAD"), version, files: DevPinUpdate.files };
+    return { commit: this.#git("rev-parse", "HEAD"), version, files: DevPinDispatch.files };
   }
 
   #git(...args) {
@@ -73,6 +73,7 @@ export class DevPinUpdate {
       cwd: this.root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, ...BOT },
     }).trim();
   }
 }

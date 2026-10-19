@@ -1,72 +1,80 @@
 name: Channel
-on:
+"on":
   workflow_call:
     inputs:
+      channel:
+        type: string
+        required: true
+      ref:
+        type: string
+        default: ""
+      forward-from:
+        type: string
+        default: ""
       runner:
         type: string
-        default: namespace-profile-2x4
+        default: ubuntu-latest
       upload:
         type: boolean
         default: false
-    outputs:
-      source_sha:
-        description: Commit of the packaged channel
-        value: ${{ jobs.build.outputs.source_sha }}
-      channel:
-        description: Channel packaged from its own branch
-        value: ${{ jobs.build.outputs.channel }}
     secrets:
       github-packages-token:
         required: false
-permissions:
-  contents: read
+    outputs:
+      commit:
+        value: ${{ jobs.build.outputs.commit }}
 jobs:
   build:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
-    permissions:
-      contents: read
     outputs:
-      source_sha: ${{ steps.source.outputs.sha }}
-      channel: ${{ steps.channel.outputs.channel }}
+      commit: ${{ steps.commit.outputs.commit }}
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      DIST: ${{ github.workspace }}/channel-dist
     steps:
-      - uses: namespacelabs/nscloud-checkout-action@66f2dc6f6c42a8ac6c4e53473c4840006822831e # v9.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: "false"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
-      - name: Record channel source
-        id: source
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Read this checkout's channel and pin
-        id: channel
-        run: node .github/scripts/channel.mjs info >> "$GITHUB_OUTPUT"
+      - name: Prepare a forward merge without publishing
+        id: prepare
+        if: inputs.forward-from != ''
         env:
-          EXPECTED_BRANCH: ${{ github.base_ref || github.ref_name }}
-      - name: Refuse public artifacts for private channels
-        if: inputs.upload
-        run: node .github/scripts/channel.mjs assert-public
-      - name: Install locked packaging tools
-        run: npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/
-      - name: Test plugin, pins, and packaging
-        run: npm test
-      - name: Install the locked CLI
+          SOURCE_SHA: ${{ inputs.forward-from }}
+          NODE_AUTH_TOKEN: ${{ secrets.github-packages-token }}
+        run: node .github/scripts/channel.mjs prepare "$CHANNEL" "$SOURCE_SHA"
+      - name: Check out the candidate
+        if: inputs.forward-from != ''
+        env:
+          CANDIDATE: ${{ steps.prepare.outputs.commit }}
+        run: git checkout --detach "$CANDIDATE"
+      - name: Record the exact commit
+        id: commit
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Verify locked dependencies, tests, packaging, and MCP startup
         env:
           NODE_AUTH_TOKEN: ${{ secrets.github-packages-token }}
-        run: node .github/scripts/channel.mjs install
-      - name: Build Cowork ZIP and standalone MCPB
-        run: node .github/scripts/build-mcpb.mjs plugins/superblocks-plugin dist "$CHANNEL"
+        run: node .github/scripts/channel.mjs verify "$CHANNEL" "$DIST"
+      - name: Publish the verified merge
+        if: inputs.forward-from != ''
         env:
-          CHANNEL: ${{ steps.channel.outputs.channel }}
-      - name: Require credentialless startup and Login
-        run: python3 .github/scripts/smoke-mcpb.py dist/*.mcpb
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ steps.commit.outputs.commit }}
+        run: node .github/scripts/channel.mjs publish "$CHANNEL" "$CANDIDATE"
+      - name: Refuse public artifacts for private channels
+        if: inputs.upload
+        run: node .github/scripts/channel.mjs assert-public "$CHANNEL"
       - if: inputs.upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cowork-${{ steps.channel.outputs.channel }}
-          path: |-
-            dist/*.zip
-            dist/*.mcpb
+          name: cowork-${{ inputs.channel }}
+          path: "${{ env.DIST }}/*.zip
+
+            ${{ env.DIST }}/*.mcpb"
           if-no-files-found: error
           retention-days: 1
