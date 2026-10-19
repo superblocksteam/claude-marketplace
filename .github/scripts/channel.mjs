@@ -1,25 +1,24 @@
-import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Channel, ChannelBranch, ChannelMarketplace } from "./channels.mjs";
+import { Channel } from "./channels.mjs";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
+const channel = Channel.current(root);
 const commands = {
-  pin: (channel, spec = channel.distTag) => channel.pinTo(root, spec),
-  install: (channel, pluginDirectory) => channel.install(resolve(pluginDirectory)),
-  marketplace: (channel, destination, sourceSha) =>
-    new ChannelMarketplace(channel, root).write(resolve(destination), sourceSha),
-  "assert-public": (channel) => channel.assertPublic(),
-  publish: (channel, sourceSha) => {
-    const { published, commit } = new ChannelBranch(channel, root).publish(sourceSha);
-    console.log(`${channel.branch}: ${published ? "published" : "unchanged at"} ${commit}`);
+  pin: (spec) => console.log(channel.pinTo(root, spec) ? "CLI pin updated." : "CLI pin unchanged."),
+  install: () => channel.install(channel.pinDirectory(root)),
+  validate: () => channel.validate(root),
+  info: () => {
+    channel.validate(root);
+    console.log(
+      `channel=${channel.name}\nbranch=${channel.branch}\ncli_version=${channel.cliVersion(root)}`,
+    );
   },
+  "assert-public": () => channel.assertPublic(),
 };
 
-const [command, name, ...args] = process.argv.slice(2);
-if (!(command in commands) || !name) {
-  throw new Error(
-    "Usage: node channel.mjs <pin|install|marketplace|assert-public|publish> <channel> [arguments]",
-  );
+const [command, ...args] = process.argv.slice(2);
+if (!Object.hasOwn(commands, command) || args.length > (command === "pin" ? 1 : 0)) {
+  throw new Error("Usage: node channel.mjs <pin [VERSION]|install|validate|info|assert-public>");
 }
-commands[command](Channel.named(name), ...args);
+commands[command](...args);

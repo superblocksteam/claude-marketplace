@@ -4,72 +4,57 @@ Superblocks plugin marketplace for Claude.
 
 ## Channels
 
-`main` is the only branch to edit. Each channel pins one exact CLI version:
+Each branch owns one complete plugin, with its exact CLI dependency and lockfile
+in `plugins/superblocks-plugin`. No branch stores another channel's pin.
 
-| Channel | Environment | Pinned in                    | Claude Code marketplace                     |
-| ------- | ----------- | ---------------------------- | ------------------------------------------- |
-| `beta`  | prod        | `plugins/superblocks-plugin` | `superblocksteam/claude-marketplace`        |
-| `next`  | staging     | `channels/next`              | `superblocksteam/claude-marketplace#next`   |
-| `dev`   | master      | `channels/dev`               | `superblocksteam/claude-marketplace#master` |
+| Branch   | Channel | CLI tag  | Claude Code marketplace                     |
+| -------- | ------- | -------- | ------------------------------------------- |
+| `main`   | `beta`  | `beta`   | `superblocksteam/claude-marketplace`        |
+| `next`   | `next`  | `next`   | `superblocksteam/claude-marketplace#next`   |
+| `master` | `dev`   | `master` | `superblocksteam/claude-marketplace#master` |
 
 Add one marketplace with `/plugin marketplace add <marketplace>` and enable one
-Superblocks plugin at a time. Claude Code installs the pinned CLI from the
-channel's lockfile. The `dev` channel installs private GitHub Packages builds;
+Superblocks plugin at a time. Claude Code installs the pinned CLI from that
+branch's lockfile. The `dev` channel installs private GitHub Packages builds;
 it works only for users who can read them, after
 `npm login --registry=https://npm.pkg.github.com --auth-type=legacy`.
 
-The **Channels** workflow tests every channel on each pull request and push,
-installs its locked CLI, builds its MCPB, and runs the startup check below.
-After a push to `main`, it regenerates the `next` and `master` branches from
-`main` and the channel pins as a new commit on each branch; it never
-force-pushes. Their plugin version records the source commit and CLI version.
-Do not edit those branches directly.
+The **Channel checks** workflow validates the checked-out branch's pin, tests
+its plugin, installs the locked CLI, builds its MCPB, and checks startup.
+A push to `main` never regenerates or updates `next` or `master`.
+Shared plugin changes must be applied to each branch where they are needed,
+while preserving that branch's pin and marketplace identity.
 
 ### Pin a newer CLI
 
-```sh
-npm run pin -- <channel> [tag-or-version]
-```
-
-Without a version, the command pins the channel's npm tag: `beta`, `next`, or
-`master`. Pinning `dev` needs GitHub Packages read access. Open a pull request
-with the change; for `beta`, also bump the plugin `version` in
-`.claude-plugin/marketplace.json` and the plugin manifest. The `next` and `dev`
-branches derive their versions from the source commit and CLI version.
-
-To open a draft PR for the latest `@master` automatically:
+Check out the branch you want to update, then run:
 
 ```sh
-npm run update:dev
+npm run pin -- [tag-or-exact-version]
 ```
 
-The command requires Node.js 24, Git, authenticated `gh` with repository write
-access, and GitHub Packages read access. It pins from the latest `main` in a
-temporary clone, leaves your checkout untouched, and reuses an open PR for the
-same CLI version. If a PR for that version was closed or merged, it does not
-reopen it; use `npm run pin -- dev <version>` for an intentional retry.
-If `main` already pins that version, it does nothing.
-PR history must come from this repository. npm runs in an isolated directory
-containing only the pin manifests, with proxying disabled and TLS verification
-enabled. Recovery reuses a matching branch or appends a fresh commit from
-latest `main` and registry pins, preserving branch history without a force push.
-`NODE_AUTH_TOKEN` can supply the package read token; GitHub authentication
-remains separate through `gh` or `GH_TOKEN`.
+Without a version, the command resolves that branch's CLI tag. It updates the
+plugin's package and lockfile, then updates the plugin and marketplace versions
+together. Other branches are untouched. Pinning `dev` needs GitHub Packages read
+access; `NODE_AUTH_TOKEN` can supply it. npm resolves pins in an isolated directory
+with lifecycle scripts disabled and GitHub write credentials removed.
+Open pin PRs against the branch being updated.
 
-Superblocks' master workflow runs this command after publishing the master
-CLI, so each successful master publish can open its dev pin PR. Review and
-merge the PR to update `#master`; users then update their dev plugin. New CLI
-versions get separate PRs so newer builds do not replace a version under
-review. Sort pending PRs by creation time rather than snapshot version, merge
-the newest acceptable update, and close superseded PRs. Automation leaves
-review decisions and existing PRs intact. Existing open PR branches are not
-rewritten or revalidated; reviewers own those changes. Squash merge generated
-pin PRs to keep recovered branch history out of `main`.
+After Superblocks publishes a master CLI, it sends a `cli-master-published`
+repository event containing the exact published version. The **Update dev CLI
+pin** workflow checks out `master`, updates its pin, and validates the plugin and
+MCP startup in a read-only job. A separate job commits only the validated pin and
+version metadata directly to `master`. It never opens a pin PR or writes another
+branch. Outdated events are skipped when the registry's `master` tag has moved;
+repeated versions do nothing. Concurrent branch changes reject the push rather
+than being overwritten. Retry the workflow to validate against the new branch tip.
+The workflow can also be run manually with an exact published CLI version.
 
 ## Cowork releases
 
 Run **Actions > Release Cowork plugin > Run workflow** from `main` and choose
-`next` or `beta`. The workflow runs on the Namespace macOS profile and creates
+`next` or `beta`. The build checks out the selected channel branch and packages
+its own plugin and lockfile. The workflow runs on the Namespace macOS profile and creates
 a draft prerelease with two assets:
 
 - A Cowork plugin ZIP containing the MCPB and configure skill.
@@ -109,12 +94,11 @@ npm ci --prefix plugins/superblocks-plugin --ignore-scripts --registry=https://r
 npm test
 ```
 
-To package a channel locally:
+To package the `next` branch locally, check out `next` and run:
 
 ```sh
-node .github/scripts/channel.mjs marketplace next /tmp/superblocks-next "$(git rev-parse HEAD)"
-node .github/scripts/channel.mjs install next /tmp/superblocks-next/plugins/superblocks-plugin
-node .github/scripts/build-mcpb.mjs /tmp/superblocks-next/plugins/superblocks-plugin /tmp/superblocks-mcpb next
+node .github/scripts/channel.mjs install
+node .github/scripts/build-mcpb.mjs plugins/superblocks-plugin /tmp/superblocks-mcpb next
 python3 .github/scripts/smoke-mcpb.py /tmp/superblocks-mcpb/*.mcpb
 ```
 
