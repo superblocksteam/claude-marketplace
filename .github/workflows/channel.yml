@@ -2,9 +2,6 @@ name: Channel
 on:
   workflow_call:
     inputs:
-      ref:
-        type: string
-        default: ""
       runner:
         type: string
         default: namespace-profile-2x4
@@ -35,7 +32,6 @@ jobs:
     steps:
       - uses: namespacelabs/nscloud-checkout-action@66f2dc6f6c42a8ac6c4e53473c4840006822831e # v9.0.1
         with:
-          ref: ${{ inputs.ref }}
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -46,6 +42,8 @@ jobs:
       - name: Read this checkout's channel and pin
         id: channel
         run: node .github/scripts/channel.mjs info >> "$GITHUB_OUTPUT"
+        env:
+          EXPECTED_BRANCH: ${{ github.base_ref || github.ref_name }}
       - name: Refuse public artifacts for private channels
         if: inputs.upload
         run: node .github/scripts/channel.mjs assert-public

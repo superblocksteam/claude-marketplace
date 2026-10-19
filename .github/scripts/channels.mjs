@@ -13,7 +13,6 @@ const EXACT_CLI_VERSION =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
 
 const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
-const writeJson = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 
 export class Channel {
   static #channels = [
@@ -91,30 +90,38 @@ export class Channel {
       pin.dependencies["@superblocksteam/cli"] !== version ||
       lock.packages[""].dependencies["@superblocksteam/cli"] !== version
     ) {
-      throw new Error("CLI pin does not match its lockfile.");
+      throw new Error(
+        `CLI pin does not match its lockfile: package.json=${pin.dependencies["@superblocksteam/cli"]}, lock dependency=${lock.packages[""].dependencies["@superblocksteam/cli"]}, locked CLI=${version}.`,
+      );
     }
     for (const [path, entry] of Object.entries(lock.packages)) {
       if (!entry.resolved) continue;
       const name = path.slice(path.lastIndexOf("node_modules/") + "node_modules/".length);
       const registry = name.startsWith("@superblocksteam/") ? this.registry : PUBLIC_NPM;
       if (new URL(entry.resolved).origin !== new URL(registry).origin) {
-        throw new Error(`Unexpected package registry for ${path}.`);
+        throw new Error(
+          `Unexpected package registry for ${path}: expected ${new URL(registry).origin}, got ${new URL(entry.resolved).origin}.`,
+        );
       }
     }
     return version;
   }
 
-  validate(root) {
+  validate(root, expectedBranch) {
+    if (expectedBranch && expectedBranch !== this.branch)
+      throw new Error(
+        `Marketplace ${this.marketplace} belongs on ${this.branch}; expected ${expectedBranch}.`,
+      );
     if (Channel.current(root) !== this)
       throw new Error(`Checkout does not belong to ${this.name}.`);
     this.cliVersion(root);
     const manifest = readJson(join(root, MANIFEST));
     const marketplace = readJson(join(root, MARKETPLACE));
     if (
-      marketplace.plugins.find((plugin) => plugin.name === manifest.name)?.version !==
-      manifest.version
+      manifest.version !== undefined ||
+      marketplace.plugins.some((plugin) => plugin.version !== undefined)
     ) {
-      throw new Error("Marketplace and plugin versions do not match.");
+      throw new Error("Git-hosted plugins must omit version to track source commits.");
     }
   }
 
@@ -194,13 +201,8 @@ export class Channel {
       );
       if (this.cliVersion(workspace) !== version)
         throw new Error("CLI pin does not match the requested version.");
-      const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], {
-        cwd: root,
-        encoding: "utf8",
-      }).trim();
       for (const file of PIN_FILES)
         cpSync(join(directory, file), join(this.pinDirectory(root), file));
-      this.#version(root, sourceSha, version);
       return true;
     } finally {
       rmSync(workspace, { recursive: true, force: true });
@@ -233,18 +235,6 @@ export class Channel {
       result.npm_config_userconfig = npmrc;
     }
     return result;
-  }
-
-  #version(root, sourceSha, cliVersion) {
-    const version = `0.0.0-${this.name}.g${sourceSha.slice(0, 12)}.cli-${cliVersion}`;
-    const manifest = readJson(join(root, MANIFEST));
-    const marketplace = readJson(join(root, MARKETPLACE));
-    const displayName = this.displayName(manifest.displayName);
-    writeJson(join(root, MANIFEST), { ...manifest, displayName, version });
-    marketplace.plugins = marketplace.plugins.map((plugin) =>
-      plugin.name === manifest.name ? { ...plugin, displayName, version } : plugin,
-    );
-    writeJson(join(root, MARKETPLACE), marketplace);
   }
 
   install(pluginDirectory) {

@@ -7,6 +7,5 @@
     "url": "https://www.superblocks.com"
   },
   "homepage": "https://www.superblocks.com",
-  "skills": "./skills/",
-  "version": "2.0.157-cowork.12"
+  "skills": "./skills/"
 }

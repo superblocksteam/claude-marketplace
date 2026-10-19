@@ -35,7 +35,7 @@ test("a checkout owns one pin, selected by its marketplace identity", () => {
   );
 });
 
-test("pinning updates only this branch's pin and versions, with no partial writes", (t) => {
+test("pinning updates only this branch's pin, with no partial writes", (t) => {
   const directory = mkdtempSync(join(tmpdir(), "superblocks-branch-pin-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const bin = join(directory, "bin");
@@ -113,16 +113,18 @@ else if (args[0] === "install") {
       FIXTURE_VERSION: "3.0.1",
     };
     assert.equal(channel.pinTo(checkout, "3.0.1", env), true);
-    channel.validate(checkout);
+    channel.validate(checkout, channel.branch);
+    assert.throws(
+      () => channel.validate(checkout, channel.branch === "next" ? "main" : "next"),
+      /belongs on .*expected/,
+    );
     assert.equal(channel.cliVersion(checkout), "3.0.1");
     const manifest = JSON.parse(
       readFileSync(join(checkout, "plugins/superblocks-plugin/.claude-plugin/plugin.json"), "utf8"),
     );
-    assert.match(manifest.version, /^0\.0\.0-\w+\.g[0-9a-f]{12}\.cli-3\.0\.1$/);
+    assert.equal(manifest.version, undefined);
     const files = git("diff", "--name-only").split("\n");
     assert.deepEqual(files, [
-      ".claude-plugin/marketplace.json",
-      "plugins/superblocks-plugin/.claude-plugin/plugin.json",
       "plugins/superblocks-plugin/package-lock.json",
       "plugins/superblocks-plugin/package.json",
     ]);
@@ -140,7 +142,7 @@ else if (args[0] === "install") {
           FIXTURE_VERSION: "3.0.2",
           FIXTURE_CORRUPT: "1",
         }),
-      /pin does not match/,
+      /CLI pin does not match its lockfile: package.json=3.0.2, lock dependency=3.0.1, locked CLI=3.0.2/,
     );
     assert.equal(git("diff"), before);
     console.log(
@@ -166,12 +168,11 @@ else if (args[0] === "install") {
         "pin",
       );
       rmSync(join(channel.pinDirectory(checkout), ".npmrc"));
-      const patch = join(directory, "pin.patch");
       const outputFile = join(directory, "github-output");
       const prepare = (version, environment) =>
         execFileSync(
           process.execPath,
-          [join(checkout, ".github/scripts/update-dev.mjs"), "prepare", version, patch],
+          [join(checkout, ".github/scripts/update-dev.mjs"), "prepare", version],
           {
             cwd: checkout,
             encoding: "utf8",
@@ -182,10 +183,9 @@ else if (args[0] === "install") {
       assert.match(prepare("3.0.0", env), /Skipping CLI 3\.0\.0: @master has moved/);
       assert.equal(
         readFileSync(outputFile, "utf8"),
-        `changed=false\nsource_sha=${git("rev-parse", "HEAD")}\n`,
+        `changed=false\nsource_sha=${git("rev-parse", "HEAD")}\npin_digest=\n`,
       );
       console.log("Skipped prepare GITHUB_OUTPUT:", readFileSync(outputFile, "utf8").trim());
-      assert.equal(existsSync(patch), false);
       writeFileSync(outputFile, "");
       assert.throws(() => prepare("master", env), /Invalid CLI version/);
       assert.equal(readFileSync(outputFile, "utf8"), "");
@@ -193,11 +193,11 @@ else if (args[0] === "install") {
       assert.equal(prepared.changed, true);
       assert.equal(
         readFileSync(outputFile, "utf8"),
-        `changed=true\nsource_sha=${git("rev-parse", "HEAD")}\n`,
+        `changed=true\nsource_sha=${git("rev-parse", "HEAD")}\npin_digest=${prepared.pinDigest}\n`,
       );
       console.log("Updated prepare GITHUB_OUTPUT:", readFileSync(outputFile, "utf8").trim());
       assert.equal(channel.cliVersion(checkout), "3.0.2");
-      assert.match(readFileSync(patch, "utf8"), /3\.0\.2/);
+      assert.match(prepared.pinDigest, /^[a-f0-9]{64}$/);
       console.log(
         "Prepared dev update:",
         JSON.stringify({

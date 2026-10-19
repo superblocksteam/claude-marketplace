@@ -33,7 +33,8 @@ test("Superblocks starts browser login without terminal API-key setup", async ()
   ]);
   const server = mcp.mcpServers.superblocks;
 
-  assert.equal(marketplace.plugins[0].version, manifest.version);
+  assert.equal(manifest.version, undefined, "Git-hosted plugins must track commits");
+  assert.equal(marketplace.plugins[0].version, undefined);
   assert.equal(server.command, "node");
   assert.deepEqual(server.args, ["${CLAUDE_PLUGIN_ROOT}/scripts/launch-mcp.mjs"]);
   for (const name of [

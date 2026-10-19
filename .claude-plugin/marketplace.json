@@ -15,8 +15,7 @@
       "displayName": "Superblocks",
       "homepage": "https://www.superblocks.com",
       "name": "superblocks",
-      "source": "./plugins/superblocks-plugin",
-      "version": "2.0.157-cowork.12"
+      "source": "./plugins/superblocks-plugin"
     }
   ]
 }

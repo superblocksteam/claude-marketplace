@@ -24,6 +24,7 @@ jobs:
     outputs:
       changed: ${{ steps.pin.outputs.changed }}
       source_sha: ${{ steps.pin.outputs.source_sha }}
+      pin_digest: ${{ steps.pin.outputs.pin_digest }}
     steps:
       - uses: namespacelabs/nscloud-checkout-action@66f2dc6f6c42a8ac6c4e53473c4840006822831e # v9.0.1
         with:
@@ -40,7 +41,7 @@ jobs:
         env:
           CLI_VERSION: ${{ github.event.client_payload.cli_version || inputs.cli_version }}
           NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
-        run: node .github/scripts/update-dev.mjs prepare "$CLI_VERSION" "$RUNNER_TEMP/dev-pin.patch"
+        run: node .github/scripts/update-dev.mjs prepare "$CLI_VERSION"
       - name: Test plugin, pins, and packaging
         run: npm test
         if: steps.pin.outputs.changed == 'true'
@@ -57,14 +58,6 @@ jobs:
       - name: Require credentialless startup and Login
         run: python3 .github/scripts/smoke-mcpb.py dist/*.mcpb
         if: steps.pin.outputs.changed == 'true'
-      - name: Save the validated pin patch
-        if: steps.pin.outputs.changed == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: dev-pin
-          path: ${{ runner.temp }}/dev-pin.patch
-          if-no-files-found: error
-          retention-days: 1
   publish:
     needs: prepare
     if: needs.prepare.outputs.changed == 'true'
@@ -76,11 +69,12 @@ jobs:
       - uses: namespacelabs/nscloud-checkout-action@66f2dc6f6c42a8ac6c4e53473c4840006822831e # v9.0.1
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
-          persist-credentials: true
+          persist-credentials: false
       - *a1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: dev-pin
-          path: ${{ runner.temp }}/dev-pin
       - name: Push the validated pin to master
-        run: node .github/scripts/update-dev.mjs publish "$RUNNER_TEMP/dev-pin/dev-pin.patch"
+        run: node .github/scripts/update-dev.mjs publish "$CLI_VERSION" "$PIN_DIGEST"
+        env:
+          CLI_VERSION: ${{ github.event.client_payload.cli_version || inputs.cli_version }}
+          PIN_DIGEST: ${{ needs.prepare.outputs.pin_digest }}
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+          GH_TOKEN: ${{ github.token }}

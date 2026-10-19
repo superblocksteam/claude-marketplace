@@ -19,6 +19,9 @@ branch's lockfile. The `dev` channel installs private GitHub Packages builds;
 it works only for users who can read them, after
 `npm login --registry=https://npm.pkg.github.com --auth-type=legacy`.
 
+Git-hosted installs track source commits: neither the marketplace entry nor the
+plugin manifest sets a version. Cowork archives use the pinned CLI version.
+
 The **Channel checks** workflow validates the checked-out branch's pin, tests
 its plugin, installs the locked CLI, builds its MCPB, and checks startup.
 A push to `main` never regenerates or updates `next` or `master`.
@@ -34,17 +37,17 @@ npm run pin -- [tag-or-exact-version]
 ```
 
 Without a version, the command resolves that branch's CLI tag. It updates the
-plugin's package and lockfile, then updates the plugin and marketplace versions
-together. Other branches are untouched. Pinning `dev` needs GitHub Packages read
-access; `NODE_AUTH_TOKEN` can supply it. npm resolves pins in an isolated directory
+plugin's package and lockfile. Other branches are untouched. Pinning `dev` needs
+GitHub Packages read access; `NODE_AUTH_TOKEN` can supply it. npm resolves pins in an isolated directory
 with lifecycle scripts disabled and GitHub write credentials removed.
 Open pin PRs against the branch being updated.
 
 After Superblocks publishes a master CLI, it sends a `cli-master-published`
 repository event containing the exact published version. The **Update dev CLI
 pin** workflow checks out `master`, updates its pin, and validates the plugin and
-MCP startup in a read-only job. A separate job commits only the validated pin and
-version metadata directly to `master`. It never opens a pin PR or writes another
+MCP startup in a read-only job. A separate job reconstructs the exact pin without
+running package code, verifies it matches the digest recorded before testing, and commits only the package and
+lockfile directly to `master`. It never opens a pin PR or writes another
 branch. Outdated events are skipped when the registry's `master` tag has moved;
 repeated versions do nothing. Concurrent branch changes reject the push rather
 than being overwritten. Retry the workflow to validate against the new branch tip.
@@ -52,10 +55,10 @@ The workflow can also be run manually with an exact published CLI version.
 
 ## Cowork releases
 
-Run **Actions > Release Cowork plugin > Run workflow** from `main` and choose
-`next` or `beta`. The build checks out the selected channel branch and packages
-its own plugin and lockfile. The workflow runs on the Namespace macOS profile and creates
-a draft prerelease with two assets:
+Run **Actions > Release Cowork plugin > Run workflow** and choose **Use workflow
+from** `main` for beta or `next` for next. Each branch runs its own workflow and
+packages its own plugin and lockfile. The workflow runs on the Namespace macOS
+profile and creates a draft prerelease with two assets:
 
 - A Cowork plugin ZIP containing the MCPB and configure skill.
 - A standalone MCPB for Claude Desktop's local MCP extensions.

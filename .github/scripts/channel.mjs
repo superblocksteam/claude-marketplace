@@ -9,7 +9,7 @@ const commands = {
   install: () => channel.install(channel.pinDirectory(root)),
   validate: () => channel.validate(root),
   info: () => {
-    channel.validate(root);
+    channel.validate(root, process.env.EXPECTED_BRANCH);
     console.log(
       `channel=${channel.name}\nbranch=${channel.branch}\ncli_version=${channel.cliVersion(root)}`,
     );
