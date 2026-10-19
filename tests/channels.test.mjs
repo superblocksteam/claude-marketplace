@@ -99,3 +99,8 @@ test("only public channels may ship preinstalled release artifacts", () => {
   assert.doesNotThrow(() => Channel.named("next").assertPublic());
   assert.throws(() => Channel.named("dev").assertPublic(), /must not ship public artifacts/);
 });
+
+test("feature-targeted pull requests run the channel checks", () => {
+  const workflow = readFileSync(join(root, ".github/workflows/channels.yml"), "utf8");
+  assert.match(workflow, /pull_request: \{\}/);
+});
