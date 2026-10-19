@@ -1,0 +1,74 @@
+name: Channel
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ""
+      runner:
+        type: string
+        default: namespace-profile-2x4
+      upload:
+        type: boolean
+        default: false
+    outputs:
+      source_sha:
+        description: Commit of the packaged channel
+        value: ${{ jobs.build.outputs.source_sha }}
+      channel:
+        description: Channel packaged from its own branch
+        value: ${{ jobs.build.outputs.channel }}
+    secrets:
+      github-packages-token:
+        required: false
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+      channel: ${{ steps.channel.outputs.channel }}
+    steps:
+      - uses: namespacelabs/nscloud-checkout-action@66f2dc6f6c42a8ac6c4e53473c4840006822831e # v9.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Record channel source
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Read this checkout's channel and pin
+        id: channel
+        run: node .github/scripts/channel.mjs info >> "$GITHUB_OUTPUT"
+      - name: Refuse public artifacts for private channels
+        if: inputs.upload
+        run: node .github/scripts/channel.mjs assert-public
+      - name: Install locked packaging tools
+        run: npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/
+      - name: Test plugin, pins, and packaging
+        run: npm test
+      - name: Install the locked CLI
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.github-packages-token }}
+        run: node .github/scripts/channel.mjs install
+      - name: Build Cowork ZIP and standalone MCPB
+        run: node .github/scripts/build-mcpb.mjs plugins/superblocks-plugin dist "$CHANNEL"
+        env:
+          CHANNEL: ${{ steps.channel.outputs.channel }}
+      - name: Require credentialless startup and Login
+        run: python3 .github/scripts/smoke-mcpb.py dist/*.mcpb
+      - if: inputs.upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cowork-${{ steps.channel.outputs.channel }}
+          path: |-
+            dist/*.zip
+            dist/*.mcpb
+          if-no-files-found: error
+          retention-days: 1
