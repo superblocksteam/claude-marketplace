@@ -12,6 +12,12 @@ const execFile = promisify(execFileCallback);
 const repoFile = (path) => new URL(`../${path}`, import.meta.url);
 const readJson = async (path) => JSON.parse(await readFile(repoFile(path), "utf8"));
 
+test("the directory listing includes a README in the installed plugin folder", async () => {
+  const readme = await readFile(repoFile("plugins/superblocks-plugin/README.md"), "utf8");
+  const prose = readme.replace(/```[^]*?```/g, "").trim();
+  assert.ok(prose.split(/\s+/).length >= 40, "The directory requires at least 40 prose words");
+});
+
 async function installedPlugin(directory, script) {
   const plugin = join(directory, "plugin with spaces");
   await cp(repoFile("plugins/superblocks-plugin"), plugin, {

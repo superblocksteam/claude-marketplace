@@ -132,6 +132,7 @@ try {
     `${JSON.stringify({ ...pluginManifest, displayName, version: cli.version, description: manifest.description, mcpServers: "./superblocks.mcpb" }, null, 2)}\n`,
   );
   cpSync(join(plugin, "skills"), join(cowork, "skills"), { recursive: true });
+  cpSync(join(plugin, "README.md"), join(cowork, "README.md"));
   cpSync(bundlePath, join(cowork, "superblocks.mcpb"), { mode: constants.COPYFILE_FICLONE });
   execFileSync(
     "python3",

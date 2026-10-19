@@ -2,6 +2,51 @@
 
 Superblocks plugin marketplace for Claude.
 
+## Anthropic directory submission
+
+Submit the production plugin through [Anthropic's developer portal](https://claude.ai/directory/manage).
+Use **Plugin bundle** with these source fields after the preparation PR is merged:
+
+| Field         | Value                                                   |
+| ------------- | ------------------------------------------------------- |
+| Repository    | `https://github.com/superblocksteam/claude-marketplace` |
+| Plugin path   | `plugins/superblocks-plugin`                            |
+| Branch or tag | `main`                                                  |
+
+The listing README lives [inside the plugin](plugins/superblocks-plugin/README.md).
+Submit that folder, rather than the marketplace root or a Cowork ZIP. The plugin
+uses a local MCP server: its tools run in Claude Code and desktop-local Cowork,
+and are ignored in web and mobile chat.
+
+Before submitting:
+
+1. Run the checks below, then select **Validate** in the portal against the
+   merged commit. Fix blocking findings and revalidate after any push.
+2. Expect reviewer holds for the lockfile-installed CLI and the Node launcher
+   inside a repository subfolder. These are documented in Anthropic's
+   [pre-submission checklist](https://claude.com/docs/plugins/pre-submission-checklist).
+3. Use the Superblocks Claude organization that should own the listing. The
+   submitting account needs a paid plan, an eligible role, and a connected
+   GitHub account with push access. A private repository also needs the Claude
+   GitHub App and consent to upload its source for review. The repository must
+   be public before the listing can go live.
+4. Confirm the contact email and data handling answers using the plugin README
+   and the applicable customer agreement. Confirm retention, external services,
+   and the intended age group with the service owner; the plugin's local files
+   do not establish service-side policies. Complete the compliance
+   acknowledgements, choose update settings, and submit for review.
+
+```sh
+npm test
+claude plugin validate ./plugins/superblocks-plugin --strict
+claude plugin validate . --strict
+```
+
+Portal validation and Anthropic's security review remain separate from these
+local checks. Follow [Submit your plugin](https://claude.com/docs/plugins/submit)
+for review status and publishing. A directory listing does not submit to the
+`claude-plugins-official` marketplace.
+
 ## Channels
 
 `main` is the only branch to edit. Each channel pins one exact CLI version:
