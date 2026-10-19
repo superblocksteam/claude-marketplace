@@ -16,7 +16,7 @@
       "homepage": "https://www.superblocks.com",
       "name": "superblocks",
       "source": "./plugins/superblocks-plugin",
-      "version": "0.0.0-next.g8cf552dfae2f.cli-2.0.169-next.2"
+      "version": "0.0.0-next.gf0f5d37577e0.cli-2.0.171-next.0"
     }
   ]
 }
