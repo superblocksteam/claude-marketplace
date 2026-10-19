@@ -63,6 +63,11 @@ channel's lockfile. The `dev` channel installs private GitHub Packages builds;
 it works only for users who can read them, after
 `npm login --registry=https://npm.pkg.github.com --auth-type=legacy`.
 
+Each channel's npm overrides carry the security fixes already used by the CLI's
+monorepo build. npm does not inherit those fixes from the monorepo's pnpm
+configuration. [AR-904](https://linear.app/superblocks/issue/AR-904) tracks removing
+the overrides once published parent dependencies include the fixes.
+
 The **Channels** workflow tests every channel on each pull request and push,
 installs its locked CLI, builds its MCPB, and runs the startup check below.
 After a push to `main`, it regenerates the `next` and `master` branches from
@@ -152,6 +157,7 @@ Install the packaging tools and the `beta` plugin's dependencies before launchin
 npm ci --ignore-scripts --registry=https://registry.npmjs.org/
 npm ci --prefix plugins/superblocks-plugin --ignore-scripts --registry=https://registry.npmjs.org/ --@superblocksteam:registry=https://registry.npmjs.org/
 npm test
+TEST_PLUGIN_DIRECTORY="$PWD/plugins/superblocks-plugin" node --test tests/installed/dependency-security.test.mjs
 ```
 
 To package a channel locally:

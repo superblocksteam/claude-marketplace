@@ -47,6 +47,10 @@ jobs:
             export NPM_CONFIG_USERCONFIG="${RUNNER_TEMP}/channel.npmrc"
           fi
           node .github/scripts/channel.mjs install "$CHANNEL" "$MARKETPLACE/plugins/superblocks-plugin"
+      - name: Verify installed dependency security and compatibility
+        env:
+          TEST_PLUGIN_DIRECTORY: ${{ env.MARKETPLACE }}/plugins/superblocks-plugin
+        run: node --test tests/installed/dependency-security.test.mjs
       - name: Build Cowork ZIP and standalone MCPB
         run: node .github/scripts/build-mcpb.mjs "$MARKETPLACE/plugins/superblocks-plugin" dist "$CHANNEL"
       - name: Require credentialless startup and Login
