@@ -26,6 +26,11 @@ name: Channel
       commit:
         value: ${{ jobs.build.outputs.commit }}
 jobs:
+  credentials:
+    uses: ./.github/workflows/publication-ready.yml
+    secrets:
+      channel-publish-token: ${{ secrets.channel-publish-token }}
+    if: inputs.forward-from != ''
   build:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
@@ -85,6 +90,8 @@ jobs:
           path: ${{ runner.temp }}/channel.bundle
           if-no-files-found: error
           retention-days: 1
+    if: "!cancelled() && (needs.credentials.result == 'success' || inputs.forward-from == '')"
+    needs: credentials
   publish:
     if: inputs.forward-from != ''
     needs: build
@@ -111,8 +118,8 @@ jobs:
           CANDIDATE: ${{ needs.build.outputs.commit }}
           CHANNEL: ${{ inputs.channel }}
         run:
-          'test -n "$GH_TOKEN" || { echo "Configure CHANNEL_PUBLISH_TOKEN with contents and workflows write permissions."
-          >&2; exit 1; }
+          'test -n "$GH_TOKEN" || { echo "Configure CHANNEL_PUBLISH_TOKEN with contents and workflows
+          write permissions." >&2; exit 1; }
 
           node .github/scripts/channel.mjs publish "$CHANNEL" "$CANDIDATE"'
 permissions:

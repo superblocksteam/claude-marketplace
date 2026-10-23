@@ -85,6 +85,13 @@ import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 appendFileSync(process.env.FORWARD_NPM_CALLS, JSON.stringify({ args, token: process.env.GH_TOKEN, cwd: process.cwd() }) + "\\n");
 if (process.env.FORWARD_FAIL_INSTALL) process.exit(17);
+if (args[0] === "ci") {
+  if (process.env.FORWARD_INVALID_LOCK) {
+    console.error("npm error code EUSAGE: constrained lockfile does not satisfy dependency ranges");
+    process.exit(1);
+  }
+  process.exit(0);
+}
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 const version = args[0] === "update" ? pkg.dependencies["@superblocksteam/cli"] : args[1].slice("@superblocksteam/cli@".length);
 pkg.dependencies["@superblocksteam/cli"] = version;
@@ -302,6 +309,28 @@ test("migration rejects a substituted legacy lockfile before installing it", (t)
   assert.equal(existsSync(repo.npmCalls), false, "substituted lockfile must never reach npm");
 });
 
+test("forward merges propagate the shared display name while retaining channel suffixes", (t) => {
+  const repo = new ChannelRepository(t);
+  const entry = repo.json("HEAD", manifest);
+  entry.displayName = "Superblocks AI";
+  repo.write(manifest, entry);
+  const catalog = repo.json("HEAD", marketplace);
+  catalog.plugins[0].displayName = "Superblocks AI";
+  repo.write(marketplace, catalog);
+  let source = repo.commit("main", "rename shared product display name");
+  for (const name of ["next", "dev"]) {
+    const branch = repo.forward(name);
+    const candidate = branch.prepare(source);
+    assert.equal(repo.json(candidate.commit, manifest).displayName, `Superblocks AI (${name})`);
+    assert.equal(
+      repo.json(candidate.commit, marketplace).plugins[0].displayName,
+      `Superblocks AI (${name})`,
+    );
+    branch.publish(candidate.commit);
+    source = candidate.commit;
+  }
+});
+
 test("forward publication rejects unreviewed dependency additions", (t) => {
   const repo = new ChannelRepository(t);
   repo.write("README.md", "upstream documentation change\n");
@@ -310,6 +339,18 @@ test("forward publication rejects unreviewed dependency additions", (t) => {
   const previous = repo.git("rev-parse", "origin/next");
   assert.throws(() => repo.forward("next").prepare(source), /unreviewed.*unrelated/i);
   assert.equal(repo.git("rev-parse", "origin/next"), previous);
+});
+
+test("forward preparation rejects an incompatible constrained lock before publication", (t) => {
+  const repo = new ChannelRepository(t);
+  repo.write("README.md", "upstream documentation change\n");
+  const source = repo.commit("main", "update documentation");
+  const previous = repo.git("rev-parse", "origin/next");
+  process.env.FORWARD_INVALID_LOCK = "1";
+  assert.throws(() => repo.forward("next").prepare(source), /Unreviewed dependency change/);
+  assert.equal(repo.git("rev-parse", "origin/next"), previous);
+  const calls = readFileSync(repo.npmCalls, "utf8").trim().split("\n").map(JSON.parse);
+  assert.deepEqual(calls.at(-1).args.slice(0, 2), ["ci", "--dry-run"]);
 });
 
 test("add/add metadata conflicts identify the file without a merge-base blob", (t) => {

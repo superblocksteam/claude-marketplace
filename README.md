@@ -57,7 +57,8 @@ main (beta / production) -> next (staging) -> master (dev)
 
 Each branch owns its exact CLI dependency and lockfile in
 `plugins/superblocks-plugin`. It also owns its marketplace name and plugin
-branding. Other channels' pins are not stored on that branch.
+branding. Product display-name changes merge forward; each channel keeps its
+own suffix. Other channels' pins are not stored on that branch.
 
 | Channel | Branch   | Claude Code marketplace                     |
 | ------- | -------- | ------------------------------------------- |
@@ -80,8 +81,9 @@ on `master` stay there until explicitly promoted in the other direction.
 
 Configure `CHANNEL_PUBLISH_TOKEN` with repository contents and workflows write
 permissions (a fine-grained PAT or GitHub App installation token). The default
-`GITHUB_TOKEN` cannot publish workflow-file changes. Only the publish step in a
-separate job receives this credential; validation runs with read-only permissions.
+`GITHUB_TOKEN` cannot publish workflow-file changes. An isolated preflight checks that this credential is configured before preparation
+and verification begin. Only that check and the final publication job receive it;
+validation runs with read-only permissions.
 This token's pushes trigger the next channel's workflow. Shared-file conflicts stop propagation for manual
 resolution on the destination branch. A concurrent destination update rejects
 publication; rerun **Channels** from the parent branch to prepare and test a fresh
@@ -99,7 +101,9 @@ Security overrides are shared package settings, so fixes to them merge forward
 while CLI versions stay on their own branches. npm does not inherit the CLI
 monorepo's pnpm overrides. A follow-up will remove them once published
 dependencies contain the fixes. Automatic updates preserve unrelated locked
-versions and reject registry or integrity changes. Forward merges accept new
+versions and reject registry or integrity changes. Before saving a constrained
+lockfile, npm validates its dependency ranges with a dry-run install and reports
+required unreviewed changes for a lockfile PR. Forward merges accept new
 dependencies only when their exact entries already exist in the incoming branch's
 reviewed lockfile; dev pin updates reject additions. Changes to existing versions
 are limited to the exact CLI pin and explicit overrides.
@@ -150,7 +154,10 @@ Configure `GH_PACKAGES_READ_TOKEN` for private package access and
 manifests, disabled proxying, verified TLS, and no GitHub write token in the npm
 environment. Superblocks' master publish automation can keep invoking
 `npm run update:dev` with workflow-dispatch permission; publication status now lives
-in the requested workflow. Existing pin PRs against `main` belong to the old model
+in the requested workflow. Missing publication credentials fail its preflight;
+package preparation, verification, and publication have separate job results.
+If publication reports a moved tag or branch, rerun **Update dev pin** to prepare
+and verify a fresh candidate. Existing pin PRs against `main` belong to the old model
 and should be closed without merging.
 
 ## Cowork releases

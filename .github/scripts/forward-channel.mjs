@@ -175,14 +175,14 @@ export class ChannelBranch {
   #preserve(file, value, owned) {
     if (file === `${PLUGIN}/package.json`) value.dependencies["@superblocksteam/cli"] = owned.cli;
     else if (file === MANIFEST) {
-      value.displayName = owned.displayName;
+      value.displayName = this.channel.displayName(value.displayName);
       value.version = owned.version;
     } else {
       value.name = owned.name;
       const target = owned.plugins.find((entry) => entry.name === "superblocks");
       const entry = value.plugins.find((entry) => entry.name === "superblocks");
       if (!entry || !target) throw new Error("The Superblocks marketplace entry is missing.");
-      entry.displayName = target.displayName;
+      entry.displayName = this.channel.displayName(entry.displayName);
       entry.version = target.version;
     }
   }

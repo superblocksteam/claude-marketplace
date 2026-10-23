@@ -87,6 +87,7 @@ test("dev prepares an immutable pin, verifies it separately, and publishes witho
     packages: {
       "": { dependencies: { "@superblocksteam/cli": "1.0.0" } },
       "node_modules/@superblocksteam/cli": { version: "1.0.0" },
+      "node_modules/unrelated": { version: "1.0.0" },
     },
   });
   write(`${plugin}/.npmrc`, "https-proxy=https://untrusted.invalid/\nstrict-ssl=false\n");
@@ -154,9 +155,22 @@ else if (args[0] === "install") {
   const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
   pkg.dependencies["@superblocksteam/cli"] = state.version;
   lock.packages["node_modules/@superblocksteam/cli"].version = state.version;
+  if (state.requiredDependency) {
+    lock.packages["node_modules/@superblocksteam/cli"].dependencies = {unrelated:"^1.2.0"};
+    lock.packages["node_modules/unrelated"].version = "1.2.0";
+  }
   if (!state.corruptPin) lock.packages[""].dependencies["@superblocksteam/cli"] = state.version;
   writeFileSync("package.json", JSON.stringify(pkg));
   writeFileSync("package-lock.json", JSON.stringify(lock));
+} else if (args[0] === "ci" && args.includes("--dry-run") && state.dryRunAuthFailure) {
+  console.error("npm error code E401: fixture registry authentication failed");
+  process.exit(1);
+} else if (args[0] === "ci" && args.includes("--dry-run") && state.requiredDependency) {
+  const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+  if (lock.packages["node_modules/unrelated"].version !== "1.2.0") {
+    console.error("npm error code EUSAGE: lockfile does not satisfy the CLI dependency range");
+    process.exit(1);
+  }
 } else if (args[0] === "test" && state.failVerify) process.exit(18);
 else if (!["test", "ci", "update"].includes(args[0])) process.exit(2);
 `,
@@ -231,7 +245,8 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
       .split("\n")
       .map(JSON.parse)
       .every(
-        ({ command, args }) => command === "npm" && ["view", "install", "update"].includes(args[0]),
+        ({ command, args }) =>
+          command === "npm" && ["view", "install", "update", "ci"].includes(args[0]),
       ),
   );
   assert.match(publish(), /master now pins 1\.0\.1/);
@@ -264,6 +279,15 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
       boundaryCalls: calls.map(({ command, args }) => ({ command, args })),
     }),
   );
+  state({ version: "1.0.2", requiredDependency: true });
+  assert.throws(() => update.prepare(), /Unreviewed dependency change/);
+  assert.equal(tip(), published);
+  state({ version: "1.0.2", dryRunAuthFailure: true });
+  assert.throws(
+    () => update.prepare(),
+    (error) => /E401/.test(error.stderr) && !/Unreviewed dependency/.test(error.message),
+  );
+  assert.equal(tip(), published);
   for (const failure of ["failPin", "corruptPin", "failVerify", "failSmoke", "tamperDuringSmoke"]) {
     state({ version: "1.0.2", [failure]: true });
     assert.throws(() => publish());

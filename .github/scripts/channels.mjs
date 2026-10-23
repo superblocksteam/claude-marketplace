@@ -226,8 +226,27 @@ export class Channel {
       original.constrain(updatedLock, version);
       original.assertUpdate(updatedLock, version);
       writeJson(join(pin, "package-lock.json"), updatedLock);
+      this.#assertInstallable(pin, env);
       for (const file of PIN_FILES) cpSync(join(pin, file), join(this.pinDirectory(root), file));
     });
+  }
+
+  #assertInstallable(directory, env) {
+    try {
+      execFileSync("npm", ["ci", "--dry-run", ...this.npmArgs()], {
+        cwd: directory,
+        env,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      if (/\bEUSAGE\b/.test(error.stderr ?? ""))
+        throw new Error(
+          "Unreviewed dependency change required by this CLI pin. Update the lockfile in a reviewed PR.",
+          { cause: error },
+        );
+      throw error;
+    }
   }
 
   install(pluginDirectory) {

@@ -7,6 +7,11 @@ concurrency:
   group: update-dev-pin
   cancel-in-progress: false
 jobs:
+  credentials:
+    uses: ./.github/workflows/publication-ready.yml
+    secrets:
+      channel-publish-token: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
+    if: github.ref == 'refs/heads/main'
   prepare:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -43,6 +48,7 @@ jobs:
           path: ${{ runner.temp }}/candidate.bundle
           if-no-files-found: error
           retention-days: 1
+    needs: credentials
   verify:
     needs: prepare
     if: needs.prepare.outputs.changed == 'true'
