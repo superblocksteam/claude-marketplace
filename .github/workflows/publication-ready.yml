@@ -10,9 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Require channel publication credential before verification
+      - name: Authenticate channel publication credential before verification
         env:
           GH_TOKEN: ${{ secrets.channel-publish-token }}
-        run:
-          test -n "$GH_TOKEN" || { echo "Configure CHANNEL_PUBLISH_TOKEN with contents and workflows
-          write permissions before running channel publication." >&2; exit 1; }
+        run: |
+          test -n "$GH_TOKEN" || { echo "Configure CHANNEL_PUBLISH_TOKEN with contents and workflows write permissions before running channel publication." >&2; exit 1; }
+          gh api --method GET "repos/$GITHUB_REPOSITORY" --silent || { echo "CHANNEL_PUBLISH_TOKEN could not authenticate a repository request. Check expiration, repository access, and contents/workflows write permissions." >&2; exit 1; }

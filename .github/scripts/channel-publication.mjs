@@ -4,8 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export class ChannelPublication {
+  static retryInstructions =
+    "Re-run all jobs to prepare and verify a fresh candidate; re-running failed jobs reuses the stale bundle.";
+
   constructor(repository, branch, remote = "origin") {
     Object.assign(this, { repository, branch, remote });
+  }
+
+  assertTip(expected, actual) {
+    if (expected !== actual)
+      throw new Error(
+        `${this.branch} changed: expected ${expected}, found ${actual}. ${ChannelPublication.retryInstructions}`,
+      );
   }
 
   publish(commit, previous) {
@@ -17,7 +27,7 @@ export class ChannelPublication {
 set -euo pipefail
 while read -r local_ref local_sha remote_ref remote_sha; do
   if [[ "$remote_ref" != "$CHANNEL_TARGET_REF" || "$remote_sha" != "$CHANNEL_EXPECTED_TIP" ]]; then
-    echo "Channel changed; discard this stale candidate and retry." >&2
+    printf '%s changed: expected %s, found %s. ${ChannelPublication.retryInstructions}\\n' "$CHANNEL_TARGET_REF" "$CHANNEL_EXPECTED_TIP" "$remote_sha" >&2
     exit 1
   fi
 done

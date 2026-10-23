@@ -303,9 +303,15 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
     (error) => /E401/.test(error.stderr) && !/Unreviewed dependency/.test(error.message),
   );
   assert.equal(tip(), published);
-  for (const failure of ["failPin", "corruptPin", "failVerify", "failSmoke", "tamperDuringSmoke"]) {
+  for (const [failure, expected] of [
+    ["failPin", { status: 17, message: /npm install/ }],
+    ["corruptPin", /package and lockfile must pin the same exact CLI version/],
+    ["failVerify", { status: 18, message: /npm test/ }],
+    ["failSmoke", { status: 19, message: /python3/ }],
+    ["tamperDuringSmoke", { status: 1, message: /git diff --exit-code/ }],
+  ]) {
     state({ version: "1.0.2", [failure]: true });
-    assert.throws(() => publish());
+    assert.throws(() => publish(), expected);
     assert.equal(tip(), published);
     console.log("Dev update rejected; master preserved:", failure, published);
   }
@@ -342,12 +348,23 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
     () => publish(),
     (error) => {
       console.log("Dev stale registry tag rejected:", error.message);
-      return /changed|stale/i.test(error.message);
+      return (
+        /master CLI tag changed: expected 1\.0\.2, found 1\.0\.3/.test(error.message) &&
+        /Re-run all jobs/.test(error.message)
+      );
     },
   );
   assert.equal(tip(), published);
   state({ version: "1.0.4", advanceDuringSmoke: true, origin });
-  assert.throws(() => publish(), /changed|stale|push/);
+  assert.throws(
+    () => publish(),
+    (error) => {
+      assert.ok(error.message.includes(`master changed: expected ${published}, found ${tip()}`));
+      assert.match(error.message, /Re-run all jobs/);
+      assert.match(error.message, /failed jobs.*stale bundle/);
+      return true;
+    },
+  );
   const raced = tip();
   assert.notEqual(raced, published);
   assert.equal(
@@ -356,7 +373,14 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
   );
   console.log("Dev concurrent push rejected; existing CLI pin preserved:", raced);
   state({ version: "1.0.5", rollbackDuringSmoke: main, origin });
-  assert.throws(() => publish(), /changed|stale|push/);
+  assert.throws(
+    () => publish(),
+    (error) => {
+      assert.ok(error.message.includes(`master changed: expected ${raced}, found ${main}`));
+      assert.match(error.message, /Re-run all jobs/);
+      return true;
+    },
+  );
   assert.equal(tip(), main);
   console.log("Dev rollback preserved:", tip());
 });

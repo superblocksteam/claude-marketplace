@@ -53,18 +53,22 @@ export class DevPinUpdate {
     this.#assertCommit(commit);
     const previous = this.#tip();
     const parents = this.#git(["rev-list", "--parents", "-n", "1", commit]).split(" ").slice(1);
-    if (parents.length !== 1 || parents[0] !== previous)
-      throw new Error("master changed; discard this stale candidate and retry.");
+    if (parents.length !== 1) throw new Error("Expected a prepared single-parent dev pin.");
+    const publication = new ChannelPublication(this.repository, "master", this.remote);
+    publication.assertTip(parents[0], previous);
     const changed = this.#git(["diff", "--name-only", previous, commit]).split("\n");
     if (changed.some((file) => !this.#files().includes(file)))
       throw new Error("The dev pin candidate changes files outside its pin and branding.");
     const pkg = JSON.parse(this.#git(["show", `${commit}:${PLUGIN}/package.json`]));
     const version = pkg.dependencies["@superblocksteam/cli"];
     const channel = Channel.named("dev");
-    if (this.#latestVersion(channel) !== version)
-      throw new Error("The master CLI tag changed during verification; retry this stale update.");
+    const latest = this.#latestVersion(channel);
+    if (latest !== version)
+      throw new Error(
+        `The master CLI tag changed: expected ${version}, found ${latest}. ${ChannelPublication.retryInstructions}`,
+      );
     this.#assertArtifact(commit, channel, version);
-    new ChannelPublication(this.repository, "master", this.remote).publish(commit, previous);
+    publication.publish(commit, previous);
     return `master now pins ${version} at ${commit}.`;
   }
 

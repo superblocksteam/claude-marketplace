@@ -394,7 +394,16 @@ test("conflicting shared code, failed npm resolution, and concurrent updates nev
   const candidate = next.prepare(main);
   repo.write("raced.txt", "new staging change\n");
   const advanced = repo.commit("next", "concurrent update");
-  assert.throws(() => next.publish(candidate.commit), /advanced|changed|stale/i);
+  assert.throws(
+    () => next.publish(candidate.commit),
+    (error) => {
+      const expected = repo.git("rev-parse", `${candidate.commit}^1`);
+      assert.ok(error.message.includes(`next changed: expected ${expected}, found ${advanced}`));
+      assert.match(error.message, /Re-run all jobs/);
+      assert.match(error.message, /failed jobs.*stale bundle/);
+      return true;
+    },
+  );
   assert.equal(repo.git("rev-parse", "origin/next"), advanced);
   console.log("Concurrent update rejected; destination preserved:", advanced);
 });

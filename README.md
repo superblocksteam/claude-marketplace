@@ -81,13 +81,19 @@ on `master` stay there until explicitly promoted in the other direction.
 
 Configure `CHANNEL_PUBLISH_TOKEN` with repository contents and workflows write
 permissions (a fine-grained PAT or GitHub App installation token). The default
-`GITHUB_TOKEN` cannot publish workflow-file changes. An isolated preflight checks that this credential is configured before preparation
-and verification begin. Only that check and the final publication job receive it;
+`GITHUB_TOKEN` cannot publish workflow-file changes. An isolated preflight rejects
+missing credentials and failed authenticated repository requests before preparation
+and verification begin. This read-only check does not prove contents or workflows
+write access; configure both permissions on the token for this repository.
+Only that check and the final publication job receive it;
 validation runs with read-only permissions.
 This token's pushes trigger the next channel's workflow. Shared-file conflicts stop propagation for manual
 resolution on the destination branch. A concurrent destination update rejects
-publication; rerun **Channels** from the parent branch to prepare and test a fresh
-candidate. Publication appends merge commits and never force-pushes.
+publication. Choose **Re-run all jobs**, or start **Channels** from the parent branch,
+to prepare and test a fresh candidate. **Re-run failed jobs** reuses the original
+bundle and cannot recover from a stale candidate. Bundles have unique names per
+run attempt; downstream jobs use the name recorded by the producer.
+Publication appends merge commits and never force-pushes.
 
 The first cascade migrates the existing package-only channel snapshots into full
 repository branches, preserving their history, CLI pins, and branding. Migration
@@ -158,10 +164,11 @@ Configure `GH_PACKAGES_READ_TOKEN` for private package access and
 manifests, disabled proxying, verified TLS, and no GitHub write token in the npm
 environment. Superblocks' master publish automation can keep invoking
 `npm run update:dev` with workflow-dispatch permission; publication status now lives
-in the requested workflow. Missing publication credentials fail its preflight;
+in the requested workflow. Missing or expired publication credentials fail its preflight;
 package preparation, verification, and publication have separate job results.
-If publication reports a moved tag or branch, rerun **Update dev pin** to prepare
-and verify a fresh candidate. Existing pin PRs against `main` belong to the old model
+If publication reports a moved tag or branch, choose **Re-run all jobs** or start a
+new **Update dev pin** run to prepare and verify a fresh candidate.
+Existing pin PRs against `main` belong to the old model
 and should be closed without merging.
 
 ## Cowork releases

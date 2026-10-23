@@ -85,12 +85,10 @@ export class ChannelBranch {
     const previous = this.#tip(this.channel.branch);
     if (previous === commit) return { published: false, commit };
     const parents = this.#git(["rev-list", "--parents", "-n", "1", commit]).split(" ").slice(1);
-    if (parents.length !== 2 || parents[0] !== previous)
-      throw new Error(`${this.channel.branch} advanced; discard this stale candidate and retry.`);
-    new ChannelPublication(this.repository, this.channel.branch, this.remote).publish(
-      commit,
-      previous,
-    );
+    if (parents.length !== 2) throw new Error("Expected a prepared two-parent channel merge.");
+    const publication = new ChannelPublication(this.repository, this.channel.branch, this.remote);
+    publication.assertTip(parents[0], previous);
+    publication.publish(commit, previous);
     return { published: true, commit };
   }
 
