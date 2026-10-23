@@ -1,0 +1,107 @@
+name: Update dev pin
+"on":
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: update-dev-pin
+  cancel-in-progress: false
+jobs:
+  credentials:
+    uses: ./.github/workflows/publication-ready.yml
+    secrets:
+      channel-publish-token: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
+    if: github.ref == 'refs/heads/main'
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      commit: ${{ steps.prepare.outputs.commit }}
+      changed: ${{ steps.prepare.outputs.changed }}
+      artifact: dev-pin-candidate-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Prepare immutable pin without executing the CLI
+        id: prepare
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+        run: node .github/scripts/dev-pin.mjs prepare
+      - name: Export prepared commit
+        if: steps.prepare.outputs.changed == 'true'
+        env:
+          CANDIDATE: ${{ steps.prepare.outputs.commit }}
+        run: 'git update-ref refs/heads/dev-pin-candidate "$CANDIDATE"
+
+          git bundle create "$RUNNER_TEMP/candidate.bundle" refs/heads/dev-pin-candidate'
+      - name: Upload prepared commit
+        if: steps.prepare.outputs.changed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dev-pin-candidate-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/candidate.bundle
+          if-no-files-found: error
+          retention-days: 1
+    needs: credentials
+  verify:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CANDIDATE: ${{ needs.prepare.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.prepare.outputs.artifact }}
+          path: ${{ runner.temp }}/dev-pin
+      - name: Import prepared commit
+        run: git bundle unbundle "$RUNNER_TEMP/dev-pin/candidate.bundle"
+      - name: Check out the prepared commit
+        run: git checkout --detach "$CANDIDATE"
+      - name: Verify dependencies, package, startup, and unchanged source
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+        run: node .github/scripts/dev-pin.mjs verify "$CANDIDATE" "$RUNNER_TEMP/dist"
+  publish:
+    needs:
+      - prepare
+      - verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.prepare.outputs.artifact }}
+          path: ${{ runner.temp }}/dev-pin
+      - name: Import prepared commit
+        run: git bundle unbundle "$RUNNER_TEMP/dev-pin/candidate.bundle"
+      - name: Publish the original prepared commit
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+          GH_TOKEN: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
+          CANDIDATE: ${{ needs.prepare.outputs.commit }}
+        run: node .github/scripts/dev-pin.mjs publish "$CANDIDATE"

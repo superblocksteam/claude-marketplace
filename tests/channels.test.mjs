@@ -6,159 +6,250 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { Channel, ChannelBranch, ChannelMarketplace } from "../.github/scripts/channels.mjs";
+import {
+  Channel,
+  ChannelMarketplace,
+  MANIFEST,
+  MARKETPLACE,
+  PLUGIN,
+  writeJson,
+} from "../.github/scripts/channels.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
-const sourceSha = "0123456789abcdef0123456789abcdef01234567";
+const current = Channel.current(root);
 
-test("each channel names its CLI tag, marketplace, and branch", () => {
+test("dev package operations preserve npm-login credentials when no token is supplied", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-npm-login-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const npmrc = join(directory, "npmrc");
+  writeFileSync(npmrc, "//npm.pkg.github.com/:_authToken=fixture-login-token\n");
+  const environment = { ...process.env, NPM_CONFIG_USERCONFIG: npmrc };
+  delete environment.NODE_AUTH_TOKEN;
+  delete environment.npm_config_userconfig;
+  Channel.named("dev").withNpm((_, env) => {
+    assert.equal(readFileSync(env.NPM_CONFIG_USERCONFIG, "utf8"), readFileSync(npmrc, "utf8"));
+    assert.equal(env.NODE_AUTH_TOKEN, undefined);
+  }, environment);
+});
+
+test("channels form the main -> next -> master chain", () => {
   assert.deepEqual(
-    Channel.all().map(({ name, distTag, branch, marketplace }) => ({
-      name,
-      distTag,
-      branch,
-      marketplace,
-    })),
+    Channel.all().map(({ name, distTag, branch, parent }) => ({ name, distTag, branch, parent })),
     [
-      { name: "beta", distTag: "beta", branch: "main", marketplace: "superblocks" },
-      { name: "next", distTag: "next", branch: "next", marketplace: "superblocks-next" },
-      { name: "dev", distTag: "master", branch: "master", marketplace: "superblocks-dev" },
+      { name: "beta", distTag: "beta", branch: "main", parent: undefined },
+      { name: "next", distTag: "next", branch: "next", parent: "main" },
+      { name: "dev", distTag: "master", branch: "master", parent: "next" },
     ],
   );
-  assert.throws(() => Channel.named("prod"), /Unknown channel "prod"; expected beta, next, or dev/);
+  assert.throws(() => Channel.named("prod"), /Unknown channel/);
 });
 
-test("every channel pins one exact CLI version in package.json and its lockfile", () => {
-  for (const channel of Channel.all()) {
-    const pin = channel.pinDirectory(root);
-    const spec = readJson(join(pin, "package.json")).dependencies["@superblocksteam/cli"];
-    const lockfile = readJson(join(pin, "package-lock.json"));
-    assert.ok(Channel.isExactVersion(spec), `${channel.name} must pin exactly`);
-    assert.equal(lockfile.packages[""].dependencies["@superblocksteam/cli"], spec);
-    assert.equal(channel.cliVersion(root), spec);
+test("this branch owns one consistent exact CLI pin and its registry", () => {
+  const spec = current.cliVersion(root);
+  assert.ok(Channel.isExactVersion(spec));
+  const lock = readJson(join(current.pinDirectory(root), "package-lock.json"));
+  const hosts = new Set();
+  for (const [path, entry] of Object.entries(lock.packages)) {
+    if (!entry.resolved) continue;
+    const host = new URL(entry.resolved).origin;
+    hosts.add(host);
+    if (!current.isPublic && path.split("node_modules/").at(-1).startsWith("@superblocksteam/"))
+      assert.equal(host, "https://npm.pkg.github.com");
   }
+  assert.deepEqual(
+    [...hosts].sort(),
+    current.isPublic
+      ? ["https://registry.npmjs.org"]
+      : ["https://npm.pkg.github.com", "https://registry.npmjs.org"],
+  );
+  assert.ok(!existsSync(join(root, "channels")), "other channels' pins belong to their branches");
 });
 
-test("public channels lock only public npm; dev locks Superblocks packages from GitHub Packages", () => {
-  for (const channel of Channel.all()) {
-    const lockfile = readJson(join(channel.pinDirectory(root), "package-lock.json"));
-    const hosts = new Set();
-    for (const [path, entry] of Object.entries(lockfile.packages)) {
-      if (!entry.resolved) continue;
-      const host = new URL(entry.resolved).origin;
-      hosts.add(host);
-      const name = path.slice(path.lastIndexOf("node_modules/") + "node_modules/".length);
-      if (!channel.isPublic && name.startsWith("@superblocksteam/")) {
-        assert.equal(host, "https://npm.pkg.github.com", `${path} must come from GitHub Packages`);
-      }
-    }
-    assert.deepEqual(
-      [...hosts].sort(),
-      channel.isPublic
-        ? ["https://registry.npmjs.org"]
-        : ["https://npm.pkg.github.com", "https://registry.npmjs.org"],
-      `${channel.name} lockfile registries`,
-    );
-  }
+test("packaging copies the current channel without changing its pin or branding", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-channel-"));
+  t.after(() => rmSync(directory, { force: true, recursive: true }));
+  new ChannelMarketplace(current, root).write(directory);
+  for (const file of [
+    MARKETPLACE,
+    MANIFEST,
+    `${PLUGIN}/package.json`,
+    `${PLUGIN}/package-lock.json`,
+  ])
+    assert.deepEqual(readJson(join(directory, file)), readJson(join(root, file)));
+  assert.ok(existsSync(join(directory, PLUGIN, "scripts/launch-mcp.mjs")));
+  assert.ok(existsSync(join(directory, PLUGIN, "skills/configure/SKILL.md")));
+  assert.ok(!existsSync(join(directory, ".github")));
+  assert.ok(!existsSync(join(directory, PLUGIN, "node_modules")));
+  const other = Channel.all().find((channel) => channel !== current);
+  assert.throws(() => new ChannelMarketplace(other, root).write(directory), /Check out/);
+  assert.throws(() => other.pinTo(root, "1.0.0"), /Check out/);
+});
+
+test("non-production branding is idempotent and follows each code or CLI update", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-channel-brand-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  new ChannelMarketplace(current, root).write(directory);
+  const channel = Channel.named(current.isPublic ? "next" : "dev");
+  const git = (...args) =>
+    execFileSync(
+      "git",
+      ["-C", directory, "-c", "core.hooksPath=/dev/null", "-c", "core.autocrlf=false", ...args],
+      {
+        encoding: "utf8",
+        stdio: "pipe",
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+      },
+    ).trim();
+  git("init", "--quiet", "--initial-branch=main", "--template=");
+  git("add", ".");
+  channel.brand(directory);
+  channel.brand(directory);
+  let manifest = readJson(join(directory, MANIFEST));
+  assert.equal(manifest.displayName, current.isPublic ? "Superblocks (next)" : "Superblocks (dev)");
+  assert.match(manifest.version, /^0\.0\.0-(next|dev)\.h[0-9a-f]{12}\.cli-/);
+  writeFileSync(join(directory, PLUGIN, ".DS_Store"), "local metadata");
+  writeFileSync(join(directory, PLUGIN, "scripts/.launch-mcp.mjs.swp"), "editor state");
+  assert.doesNotThrow(() => channel.assertVersion(directory));
+  writeFileSync(join(directory, PLUGIN, "new-file.txt"), "new plugin content\n");
+  git("add", `${PLUGIN}/new-file.txt`);
+  assert.throws(() => channel.assertVersion(directory), /version.*stale/i);
+  channel.brand(directory);
+  assert.notEqual(readJson(join(directory, MANIFEST)).version, manifest.version);
+  git("rm", "--quiet", "--force", `${PLUGIN}/new-file.txt`);
+  channel.brand(directory);
+  assert.equal(readJson(join(directory, MANIFEST)).version, manifest.version);
+  writeFileSync(
+    join(directory, PLUGIN, "scripts/launch-mcp.mjs"),
+    "console.log('changed plugin');\n",
+  );
+  assert.throws(() => channel.assertVersion(directory), /version.*stale/i);
+  channel.brand(directory);
+  assert.doesNotThrow(() => channel.assertVersion(directory));
+  const changed = readJson(join(directory, MANIFEST));
+  assert.notEqual(changed.version, manifest.version);
+  assert.equal(readJson(join(directory, MARKETPLACE)).plugins[0].version, changed.version);
+  git("add", "--update");
+  git(
+    "-c",
+    "user.name=test",
+    "-c",
+    "user.email=test@example.com",
+    "-c",
+    "commit.gpgsign=false",
+    "commit",
+    "--quiet",
+    "-m",
+    "versioned plugin",
+  );
+  const clean = mkdtempSync(join(tmpdir(), "superblocks-channel-clean-"));
+  t.after(() => rmSync(clean, { recursive: true, force: true }));
+  git("clone", "--quiet", directory, clean);
+  assert.ok(!existsSync(join(clean, PLUGIN, ".DS_Store")));
+  assert.doesNotThrow(() => channel.assertVersion(clean));
+  channel.brand(clean);
+  assert.equal(readJson(join(clean, MANIFEST)).version, changed.version);
+  git(
+    "update-index",
+    "--add",
+    "--cacheinfo",
+    "160000",
+    git("rev-parse", "HEAD"),
+    `${PLUGIN}/external`,
+  );
+  assert.throws(() => channel.assertVersion(directory), /Unsupported plugin entry/);
+  git("update-index", "--force-remove", `${PLUGIN}/external`);
+  const pkg = readJson(join(directory, PLUGIN, "package.json"));
+  pkg.dependencies["@superblocksteam/cli"] = "master";
+  writeJson(join(directory, PLUGIN, "package.json"), pkg);
+  assert.throws(() => channel.cliVersion(directory), /same exact CLI version/);
 });
 
 test("only public channels may ship preinstalled release artifacts", () => {
   assert.doesNotThrow(() => Channel.named("beta").assertPublic());
   assert.doesNotThrow(() => Channel.named("next").assertPublic());
+  assert.throws(() => Channel.named("dev").assertPublic(), /must not ship public artifacts/);
+});
+
+test("dev rejects public-registry substitution of any scoped dependency", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-registry-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  new ChannelMarketplace(current, root).write(directory);
+  const path = join(directory, PLUGIN, "package-lock.json");
+  const lock = readJson(path);
+  for (const [name, entry] of Object.entries(lock.packages)) {
+    if (name.split("node_modules/").at(-1).startsWith("@superblocksteam/") && entry.resolved)
+      entry.resolved = `https://npm.pkg.github.com/download/${name.split("node_modules/").at(-1)}/${entry.version}/${"a".repeat(40)}`;
+  }
+  lock.packages["node_modules/parent/node_modules/@superblocksteam/sdk"] = {
+    version: "1.0.0",
+    resolved: "https://registry.npmjs.org/@superblocksteam/sdk/-/sdk-1.0.0.tgz",
+  };
+  writeJson(path, lock);
   assert.throws(
-    () => Channel.named("dev").assertPublic(),
-    /dev installs private GitHub Packages builds and must not ship public artifacts/,
+    () => Channel.named("dev").cliVersion(directory),
+    /registry.*@superblocksteam\/sdk/i,
   );
 });
 
-test("a branch channel's marketplace carries its pin, name, and a version per source and CLI", (t) => {
-  const destination = mkdtempSync(join(tmpdir(), "superblocks-channel-"));
-  t.after(() => rmSync(destination, { force: true, recursive: true }));
-  const next = Channel.named("next");
-  new ChannelMarketplace(next, root).write(destination, sourceSha);
-
-  const marketplace = readJson(join(destination, ".claude-plugin/marketplace.json"));
-  const manifest = readJson(
-    join(destination, "plugins/superblocks-plugin/.claude-plugin/plugin.json"),
-  );
-  const version = `0.0.0-next.g0123456789ab.cli-${next.cliVersion(root)}`;
-  assert.equal(marketplace.name, "superblocks-next");
-  assert.equal(marketplace.plugins[0].name, "superblocks");
-  assert.equal(marketplace.plugins[0].displayName, "Superblocks (next)");
-  assert.equal(marketplace.plugins[0].version, version);
-  assert.equal(manifest.version, version);
-  assert.equal(manifest.displayName, "Superblocks (next)");
-  for (const file of ["package.json", "package-lock.json"]) {
-    assert.deepEqual(
-      readJson(join(destination, "plugins/superblocks-plugin", file)),
-      readJson(join(next.pinDirectory(root), file)),
-    );
-  }
-  assert.ok(existsSync(join(destination, "plugins/superblocks-plugin/scripts/launch-mcp.mjs")));
-  assert.ok(existsSync(join(destination, "plugins/superblocks-plugin/skills/configure/SKILL.md")));
-  for (const excluded of [
-    ".github",
-    "tests",
-    "channels",
-    "plugins/superblocks-plugin/node_modules",
-  ]) {
-    assert.ok(!existsSync(join(destination, excluded)), `${excluded} must not be published`);
-  }
+test("pin verification rejects another package's tarball on the expected registry", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-tarball-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  new ChannelMarketplace(current, root).write(directory);
+  const path = join(directory, PLUGIN, "package-lock.json");
+  const lock = readJson(path);
+  lock.packages["node_modules/qs"].resolved =
+    "https://registry.npmjs.org/unrelated/-/unrelated-6.16.1.tgz";
+  writeJson(path, lock);
+  assert.throws(() => current.cliVersion(directory), /tarball.*node_modules\/qs/i);
+  lock.packages["node_modules/qs"].name = "unrelated";
+  writeJson(path, lock);
+  assert.throws(() => current.cliVersion(directory), /alias.*node_modules\/qs/i);
 });
 
-test("the beta marketplace is main's own tree", (t) => {
-  const destination = mkdtempSync(join(tmpdir(), "superblocks-channel-"));
-  t.after(() => rmSync(destination, { force: true, recursive: true }));
-  new ChannelMarketplace(Channel.named("beta"), root).write(destination, sourceSha);
-  for (const file of [
-    ".claude-plugin/marketplace.json",
-    "plugins/superblocks-plugin/.claude-plugin/plugin.json",
-    "plugins/superblocks-plugin/package.json",
-    "plugins/superblocks-plugin/package-lock.json",
-  ]) {
-    assert.deepEqual(readJson(join(destination, file)), readJson(join(root, file)), file);
-  }
+test("a decoy alias cannot substitute another package for the pinned CLI", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-cli-identity-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  new ChannelMarketplace(current, root).write(directory);
+  const path = join(directory, PLUGIN, "package-lock.json");
+  const lock = readJson(path);
+  const cli = lock.packages["node_modules/@superblocksteam/cli"];
+  cli.name = "unrelated";
+  cli.resolved = `https://registry.npmjs.org/unrelated/-/unrelated-${cli.version}.tgz`;
+  lock.packages["node_modules/decoy"] = {
+    version: "1.0.0",
+    dependencies: { "@superblocksteam/cli": `npm:unrelated@${cli.version}` },
+  };
+  writeJson(path, lock);
+  assert.throws(() => current.cliVersion(directory), /alias.*@superblocksteam\/cli/i);
 });
 
-test("publishing a channel branch appends to its history and never rewrites it", (t) => {
-  const directory = mkdtempSync(join(tmpdir(), "superblocks-channel-branch-"));
-  t.after(() => rmSync(directory, { force: true, recursive: true }));
-  const origin = join(directory, "origin.git");
-  const repository = join(directory, "repository");
-  const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-  const identity = ["-c", "user.name=test", "-c", "user.email=test@example.com"];
-  git(directory, "init", "--quiet", "--bare", origin);
-  git(directory, "init", "--quiet", repository);
-  git(repository, "remote", "add", "origin", origin);
-  writeFileSync(join(repository, "legacy.txt"), "previous dev marketplace\n");
-  git(repository, "add", "legacy.txt");
-  git(repository, ...identity, "commit", "--quiet", "-m", "legacy");
-  git(repository, "push", "--quiet", "origin", "HEAD:refs/heads/next");
-  const legacy = git(origin, "rev-parse", "next");
-
-  const branch = new ChannelBranch(Channel.named("next"), root, repository);
-  const first = branch.publish(sourceSha);
-  assert.equal(first.published, true);
-  assert.equal(git(origin, "rev-parse", "next"), first.commit);
-  assert.equal(git(origin, "rev-parse", "next^"), legacy);
-  const files = git(origin, "ls-tree", "-r", "--name-only", "next").split("\n");
-  assert.ok(files.includes(".claude-plugin/marketplace.json"));
-  assert.ok(!files.includes("legacy.txt"));
-  const marketplace = JSON.parse(git(origin, "show", "next:.claude-plugin/marketplace.json"));
-  assert.equal(marketplace.name, "superblocks-next");
-  assert.match(
-    git(origin, "log", "-1", "--format=%s", "next"),
-    /^chore\(channel\): publish next with CLI \S+ from 0123456789ab$/,
-  );
-
-  assert.deepEqual(branch.publish(sourceSha), { published: false, commit: first.commit });
-  const second = branch.publish("fedcba9876543210fedcba9876543210fedcba98");
-  assert.equal(second.published, true);
-  assert.equal(git(origin, "rev-parse", "next^"), first.commit);
-
-  assert.throws(
-    () => new ChannelBranch(Channel.named("beta"), root, repository).publish(sourceSha),
-    /beta is published by merging to main/,
-  );
+test("an alias declaration only authorizes the dependency path it resolves to", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-alias-path-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  new ChannelMarketplace(current, root).write(directory);
+  const path = join(directory, PLUGIN, "package-lock.json");
+  const lock = readJson(path);
+  const alias = {
+    name: "unrelated",
+    version: "1.0.0",
+    resolved: "https://registry.npmjs.org/unrelated/-/unrelated-1.0.0.tgz",
+  };
+  lock.packages["node_modules/renamed"] = alias;
+  lock.packages["node_modules/decoy"] = {
+    version: "1.0.0",
+    dependencies: { renamed: "npm:unrelated@1.0.0" },
+  };
+  lock.packages["node_modules/decoy/node_modules/renamed"] = alias;
+  writeJson(path, lock);
+  assert.throws(() => current.cliVersion(directory), /alias.*node_modules\/renamed/i);
+  delete lock.packages["node_modules/renamed"];
+  writeJson(path, lock);
+  assert.doesNotThrow(() => current.cliVersion(directory));
+  lock.packages["node_modules/decoy/node_modules/@scope/consumer"] = {
+    version: "1.0.0",
+    dependencies: { renamed: "1.0.0" },
+  };
+  writeJson(path, lock);
+  assert.throws(() => current.cliVersion(directory), /alias.*decoy\/node_modules\/renamed/i);
 });
