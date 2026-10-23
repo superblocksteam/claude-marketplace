@@ -113,6 +113,9 @@ required unreviewed changes for a lockfile PR. Forward merges accept new
 dependencies only when their exact entries already exist in the incoming branch's
 reviewed lockfile; dev pin updates reject additions. Changes to existing versions
 are limited to the exact CLI pin and explicit overrides.
+Updating only the lockfile on one branch does not update existing transitive
+versions on other channels. To ship a security fix across channels, add an
+explicit shared override or open a lockfile PR against each affected channel.
 If a CLI or override requires additional dependency changes, prepare and review
 that channel's lockfile in a PR before retrying automation.
 
@@ -129,8 +132,11 @@ Without a version, this resolves the channel's npm tag (`beta`, `next`, or
 Open a PR against that same branch. For beta, also bump the plugin version in
 `.claude-plugin/marketplace.json` and the plugin manifest. Next and dev versions
 include a plugin-content hash and CLI version automatically. After direct plugin
-edits on next or dev, run `node .github/scripts/channel.mjs version <channel>`
-and commit both manifests. Verification rejects stale versions before forwarding
+edits on next or dev, stage any new plugin files, then run
+`node .github/scripts/channel.mjs version <channel>`
+and commit both manifests. The hash covers current contents of Git-tracked plugin
+files; untracked local files are ignored. Adding a new file after computing the
+version requires recomputing it. Verification rejects stale versions before forwarding
 or release packaging; require the Channels check on channel PRs to enforce this
 before merge. Direct pushes also fail validation if the version is stale.
 
@@ -144,6 +150,8 @@ This requires Node.js 24 and authenticated `gh` with permission to dispatch Acti
 The command requests **Actions > Update dev pin** on `main` and returns after GitHub
 accepts the request. Follow that workflow for the final result; the local command
 does not install or execute the new CLI.
+Exit zero means the dispatch was accepted, not that publication succeeded.
+Automation calling this command must observe the requested workflow's final result.
 
 The workflow prepares an immutable commit from the latest `master`, resolving the
 exact CLI version and refreshing the pin, lockfile, and branding without running

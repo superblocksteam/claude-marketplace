@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -90,11 +91,34 @@ test("non-production branding is idempotent and follows each code or CLI update"
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   new ChannelMarketplace(current, root).write(directory);
   const channel = Channel.named(current.isPublic ? "next" : "dev");
+  const git = (...args) =>
+    execFileSync(
+      "git",
+      ["-C", directory, "-c", "core.hooksPath=/dev/null", "-c", "core.autocrlf=false", ...args],
+      {
+        encoding: "utf8",
+        stdio: "pipe",
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+      },
+    ).trim();
+  git("init", "--quiet", "--initial-branch=main", "--template=");
+  git("add", ".");
   channel.brand(directory);
   channel.brand(directory);
   let manifest = readJson(join(directory, MANIFEST));
   assert.equal(manifest.displayName, current.isPublic ? "Superblocks (next)" : "Superblocks (dev)");
   assert.match(manifest.version, /^0\.0\.0-(next|dev)\.h[0-9a-f]{12}\.cli-/);
+  writeFileSync(join(directory, PLUGIN, ".DS_Store"), "local metadata");
+  writeFileSync(join(directory, PLUGIN, "scripts/.launch-mcp.mjs.swp"), "editor state");
+  assert.doesNotThrow(() => channel.assertVersion(directory));
+  writeFileSync(join(directory, PLUGIN, "new-file.txt"), "new plugin content\n");
+  git("add", `${PLUGIN}/new-file.txt`);
+  assert.throws(() => channel.assertVersion(directory), /version.*stale/i);
+  channel.brand(directory);
+  assert.notEqual(readJson(join(directory, MANIFEST)).version, manifest.version);
+  git("rm", "--quiet", "--force", `${PLUGIN}/new-file.txt`);
+  channel.brand(directory);
+  assert.equal(readJson(join(directory, MANIFEST)).version, manifest.version);
   writeFileSync(
     join(directory, PLUGIN, "scripts/launch-mcp.mjs"),
     "console.log('changed plugin');\n",
@@ -105,6 +129,36 @@ test("non-production branding is idempotent and follows each code or CLI update"
   const changed = readJson(join(directory, MANIFEST));
   assert.notEqual(changed.version, manifest.version);
   assert.equal(readJson(join(directory, MARKETPLACE)).plugins[0].version, changed.version);
+  git("add", "--update");
+  git(
+    "-c",
+    "user.name=test",
+    "-c",
+    "user.email=test@example.com",
+    "-c",
+    "commit.gpgsign=false",
+    "commit",
+    "--quiet",
+    "-m",
+    "versioned plugin",
+  );
+  const clean = mkdtempSync(join(tmpdir(), "superblocks-channel-clean-"));
+  t.after(() => rmSync(clean, { recursive: true, force: true }));
+  git("clone", "--quiet", directory, clean);
+  assert.ok(!existsSync(join(clean, PLUGIN, ".DS_Store")));
+  assert.doesNotThrow(() => channel.assertVersion(clean));
+  channel.brand(clean);
+  assert.equal(readJson(join(clean, MANIFEST)).version, changed.version);
+  git(
+    "update-index",
+    "--add",
+    "--cacheinfo",
+    "160000",
+    git("rev-parse", "HEAD"),
+    `${PLUGIN}/external`,
+  );
+  assert.throws(() => channel.assertVersion(directory), /Unsupported plugin entry/);
+  git("update-index", "--force-remove", `${PLUGIN}/external`);
   const pkg = readJson(join(directory, PLUGIN, "package.json"));
   pkg.dependencies["@superblocksteam/cli"] = "master";
   writeJson(join(directory, PLUGIN, "package.json"), pkg);

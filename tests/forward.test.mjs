@@ -387,9 +387,10 @@ test("conflicting shared code, failed npm resolution, and concurrent updates nev
   console.log("Shared conflict rejected; destination preserved:", previous);
   repo.git("switch", "--quiet", "--detach", previous);
   repo.write("shared.txt", "one\ntwo\nthree\n");
-  repo.commit("next", "resolve staging divergence");
+  const resolved = repo.commit("next", "resolve staging divergence");
   process.env.FORWARD_FAIL_INSTALL = "1";
-  assert.throws(() => next.prepare(main));
+  assert.throws(() => next.prepare(main), { status: 17, message: /npm install/ });
+  assert.equal(repo.git("rev-parse", "origin/next"), resolved);
   delete process.env.FORWARD_FAIL_INSTALL;
   const candidate = next.prepare(main);
   repo.write("raced.txt", "new staging change\n");

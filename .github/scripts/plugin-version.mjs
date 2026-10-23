@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export class PluginVersion {
@@ -9,26 +10,20 @@ export class PluginVersion {
 
   value() {
     const hash = createHash("sha256");
-    const visit = (path) => {
-      for (const entry of readdirSync(join(this.root, path), { withFileTypes: true }).sort((a, b) =>
-        a.name.localeCompare(b.name, "en"),
-      )) {
-        if (entry.name === "node_modules") continue;
-        const child = `${path}/${entry.name}`;
-        if (entry.isDirectory()) visit(child);
-        else if (entry.isFile()) {
-          let content = readFileSync(join(this.root, child));
-          if (child === "plugins/superblocks-plugin/.claude-plugin/plugin.json") {
-            const metadata = JSON.parse(content);
-            delete metadata.version;
-            delete metadata.displayName;
-            content = JSON.stringify(metadata);
-          }
-          hash.update(child).update("\0").update(content).update("\0");
-        } else throw new Error(`Unsupported plugin entry: ${child}`);
+    for (const path of this.#trackedFiles()) {
+      const file = join(this.root, path);
+      const entry = lstatSync(file, { throwIfNoEntry: false });
+      if (!entry) continue;
+      if (!entry.isFile()) throw new Error(`Unsupported plugin entry: ${path}`);
+      let content = readFileSync(file);
+      if (path === "plugins/superblocks-plugin/.claude-plugin/plugin.json") {
+        const metadata = JSON.parse(content);
+        delete metadata.version;
+        delete metadata.displayName;
+        content = JSON.stringify(metadata);
       }
-    };
-    visit("plugins");
+      hash.update(path).update("\0").update(content).update("\0");
+    }
     const marketplace = JSON.parse(
       readFileSync(join(this.root, ".claude-plugin/marketplace.json")),
     );
@@ -40,5 +35,20 @@ export class PluginVersion {
     }
     hash.update(JSON.stringify(marketplace));
     return `0.0.0-${this.channel}.h${hash.digest("hex").slice(0, 12)}.cli-${this.cliVersion}`;
+  }
+
+  #trackedFiles() {
+    const output = execFileSync("git", ["ls-files", "--stage", "-z", "--", "plugins/"], {
+      cwd: this.root,
+      encoding: "utf8",
+    });
+    const paths = new Set();
+    for (const entry of output.split("\0").filter(Boolean)) {
+      const path = entry.slice(entry.indexOf("\t") + 1);
+      if (path.split("/").includes("node_modules")) continue;
+      if (!/^100(644|755) /.test(entry)) throw new Error(`Unsupported plugin entry: ${path}`);
+      paths.add(path);
+    }
+    return [...paths].sort();
   }
 }
