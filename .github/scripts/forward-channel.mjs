@@ -2,7 +2,9 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
+import { ChannelPublication } from "./channel-publication.mjs";
 import { BOT, MANIFEST, MARKETPLACE, PLUGIN, readJson, writeJson } from "./channels.mjs";
 
 export class ChannelBranch {
@@ -30,7 +32,7 @@ export class ChannelBranch {
         [MARKETPLACE, readJson(join(checkout, MARKETPLACE))],
       ]);
       if (!existsSync(join(checkout, "package.json"))) {
-        this.#migrate(checkout, sourceSha);
+        this.#migrate(checkout, sourceSha, owned);
       } else {
         const merge = this.#run(["merge", "--no-commit", "--no-ff", sourceSha], checkout);
         if (merge.status !== 0 && merge.status !== 1)
@@ -53,8 +55,11 @@ export class ChannelBranch {
         writeJson(join(checkout, file), value);
       }
       writeFileSync(join(checkout, PLUGIN, "package-lock.json"), lock);
-      this.channel.pinTo(checkout, version);
-      this.channel.brand(checkout, sourceSha);
+      const reviewedLock = JSON.parse(
+        this.#git(["show", `${sourceSha}:${PLUGIN}/package-lock.json`], checkout),
+      );
+      this.channel.pinTo(checkout, version, reviewedLock);
+      this.channel.brand(checkout);
       this.#git(["add", "--all"], checkout);
       const tree = this.#git(["write-tree"], checkout);
       const commit = this.#git([
@@ -82,20 +87,14 @@ export class ChannelBranch {
     const parents = this.#git(["rev-list", "--parents", "-n", "1", commit]).split(" ").slice(1);
     if (parents.length !== 2 || parents[0] !== previous)
       throw new Error(`${this.channel.branch} advanced; discard this stale candidate and retry.`);
-    this.#git([
-      "-c",
-      "credential.helper=",
-      "-c",
-      "credential.helper=!gh auth git-credential",
-      "push",
-      "--quiet",
-      this.remote,
-      `${commit}:refs/heads/${this.channel.branch}`,
-    ]);
+    new ChannelPublication(this.repository, this.channel.branch, this.remote).publish(
+      commit,
+      previous,
+    );
     return { published: true, commit };
   }
 
-  #migrate(checkout, sourceSha) {
+  #migrate(checkout, sourceSha, owned) {
     const files = this.#git(["ls-tree", "-r", "--name-only", "HEAD"], checkout).split("\n");
     const sourceFiles = new Set(
       this.#git(["ls-tree", "-r", "--name-only", sourceSha], checkout).split("\n"),
@@ -111,12 +110,60 @@ export class ChannelBranch {
     ) {
       throw new Error("Legacy channel contains unexpected files; migrate it manually.");
     }
+    const stamp = owned.get(MANIFEST).version.match(/\.g([0-9a-f]{12})\.cli-/)?.[1];
+    if (!stamp) throw new Error("Legacy channel has no source stamp; migrate it manually.");
+    const baseline = this.#git(["rev-parse", "--verify", `${stamp}^{commit}`], checkout);
+    if (!this.#ancestor(baseline, sourceSha))
+      throw new Error(
+        "Legacy source is not an ancestor of the incoming source; migrate it manually.",
+      );
+    const expectedFiles = this.#git(
+      ["ls-tree", "-r", "--name-only", baseline, "--", "README.md", ".claude-plugin", "plugins"],
+      checkout,
+    ).split("\n");
+    for (const file of expectedFiles) {
+      if (!files.includes(file))
+        throw new Error(`Legacy channel independently deleted ${file}; migrate it manually.`);
+    }
+    for (const file of files) {
+      if (file === `${PLUGIN}/package-lock.json`) continue;
+      let sourcePath = file;
+      const legacyPin = `channels/${this.channel.name}/package.json`;
+      if (
+        file === `${PLUGIN}/package.json` &&
+        this.#run(["cat-file", "-e", `${baseline}:${legacyPin}`], checkout).status === 0
+      )
+        sourcePath = legacyPin;
+      const original = this.#run(["show", `${baseline}:${sourcePath}`], checkout);
+      if (original.status !== 0)
+        throw new Error(
+          `Legacy channel contains an independent file: ${file}. Migrate it manually.`,
+        );
+      let matches;
+      if (owned.has(file)) {
+        const expected = JSON.parse(original.stdout);
+        this.#preserve(file, expected, owned.get(file));
+        matches = isDeepStrictEqual(expected, readJson(join(checkout, file)));
+      } else {
+        matches =
+          this.#git(["rev-parse", `HEAD:${file}`], checkout) ===
+          this.#git(["rev-parse", `${baseline}:${sourcePath}`], checkout);
+      }
+      const mode = (ref, path) => this.#git(["ls-tree", ref, "--", path], checkout).split(" ")[0];
+      if (!matches || mode("HEAD", file) !== mode(baseline, sourcePath))
+        throw new Error(`Legacy channel independently changed ${file}; migrate it manually.`);
+    }
     this.#git(["read-tree", "--reset", "-u", sourceSha], checkout);
   }
 
   #resolve(checkout, file, owned, directory) {
     const paths = [2, 1, 3].map((stage) => {
-      const value = JSON.parse(this.#git(["show", `:${stage}:${file}`], checkout));
+      const original = this.#run(["show", `:${stage}:${file}`], checkout);
+      if (original.status !== 0)
+        throw new Error(
+          `Shared metadata conflict: ${file}. No common file exists; resolve it on ${this.channel.branch} before retrying.`,
+        );
+      const value = JSON.parse(original.stdout);
       this.#preserve(file, value, owned);
       const path = join(directory, `merge-${stage}.json`);
       writeJson(path, value);

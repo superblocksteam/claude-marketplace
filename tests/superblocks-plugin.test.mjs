@@ -18,9 +18,9 @@ test("the directory listing includes a README in the installed plugin folder", a
   assert.ok(prose.split(/\s+/).length >= 40, "The directory requires at least 40 prose words");
 });
 
-test("the installed plugin includes the Superblocks Community Software License", async () => {
+test("the installed plugin includes the Superblocks Community License Agreement", async () => {
   const license = await readFile(repoFile("plugins/superblocks-plugin/LICENSE"), "utf8");
-  assert.match(license, /^Superblocks Community Software License\n/);
+  assert.match(license, /^Superblocks Community License Agreement\n/);
 });
 
 async function installedPlugin(directory, script) {

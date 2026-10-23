@@ -61,7 +61,7 @@ test("dev publishes a verified pin directly to master, leaving main and the call
   });
   write(
     "tests/installed/dependency-security.test.mjs",
-    "import assert from 'node:assert/strict'; assert.ok(process.env.TEST_PLUGIN_DIRECTORY); assert.equal(process.env.GH_TOKEN, undefined);\n",
+    "import assert from 'node:assert/strict'; assert.ok(process.env.TEST_PLUGIN_DIRECTORY); assert.equal(process.env.GH_TOKEN, undefined); assert.equal(process.env.NODE_AUTH_TOKEN, undefined);\n",
   );
   write(
     ".github/scripts/build-mcpb.mjs",
@@ -76,7 +76,7 @@ test("dev publishes a verified pin directly to master, leaving main and the call
   const config = join(directory, "gitconfig");
   writeFileSync(
     config,
-    `[url "file://${origin}"]\n insteadOf = https://github.com/superblocksteam/claude-marketplace.git\n`,
+    `[url "file://${origin}"]\n insteadOf = https://github.com/superblocksteam/claude-marketplace.git\n[core]\n hooksPath = /dev/null\n`,
   );
   Object.assign(process.env, {
     PATH: `${bin}:${process.env.PATH}`,
@@ -95,6 +95,7 @@ const args = process.argv.slice(2);
 const state = JSON.parse(readFileSync(process.env.DEV_STATE, "utf8"));
 appendFileSync(process.env.DEV_CALLS, JSON.stringify({ command: process.argv[1].split("/").pop(), args, token: process.env.GH_TOKEN, projectNpmrc: existsSync(".npmrc"), proxy: process.env.npm_config_https_proxy, tls: process.env.npm_config_strict_ssl }) + "\n");
 assert.equal(process.env.GH_TOKEN, undefined);
+if (args[0] === "test" || process.argv[1].endsWith("/python3")) assert.equal(process.env.NODE_AUTH_TOKEN, undefined);
 `;
   writeFileSync(
     join(bin, "npm"),
@@ -133,6 +134,7 @@ if (state.advanceDuringSmoke) {
   const commit = git("commit-tree", git("rev-parse", "master^{tree}"), "-p", previous, "-m", "concurrent dev update");
   git("update-ref", "refs/heads/master", commit, previous);
 }
+if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "update-ref", "refs/heads/master", state.rollbackDuringSmoke]);
 `,
     { mode: 0o755 },
   );
@@ -215,4 +217,8 @@ if (state.advanceDuringSmoke) {
     "1.0.1",
   );
   console.log("Dev concurrent push rejected; existing CLI pin preserved:", raced);
+  state({ version: "1.0.5", rollbackDuringSmoke: main, origin });
+  assert.throws(() => update.publish(), /changed|stale|push/);
+  assert.equal(tip(), main);
+  console.log("Dev rollback preserved:", tip());
 });

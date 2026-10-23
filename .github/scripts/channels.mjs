@@ -11,6 +11,9 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
+import { LockedDependencies } from "./locked-dependencies.mjs";
+import { PluginVersion } from "./plugin-version.mjs";
+
 const PUBLIC_NPM = "https://registry.npmjs.org/";
 const GITHUB_PACKAGES = "https://npm.pkg.github.com/";
 export const PLUGIN = "plugins/superblocks-plugin";
@@ -103,6 +106,15 @@ export class Channel {
     ) {
       throw new Error("The plugin package and lockfile must pin the same exact CLI version.");
     }
+    for (const [path, entry] of Object.entries(lock.packages)) {
+      if (!entry.resolved) continue;
+      const expected = path.split("node_modules/").at(-1).startsWith("@superblocksteam/")
+        ? this.registry
+        : PUBLIC_NPM;
+      const url = new URL(entry.resolved);
+      if (url.origin !== new URL(expected).origin || url.username || url.password)
+        throw new Error(`Unexpected package registry for ${path}.`);
+    }
     return spec;
   }
 
@@ -135,14 +147,16 @@ export class Channel {
       env[`NPM_CONFIG_${name.toUpperCase()}`] = value;
     }
     if (this.isPublic) delete env.NODE_AUTH_TOKEN;
-    const npmrc = join(directory, "npmrc");
-    writeFileSync(
-      npmrc,
-      this.isPublic ? "" : "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n",
-      { mode: 0o600 },
-    );
-    env.NPM_CONFIG_USERCONFIG = npmrc;
-    env.npm_config_userconfig = npmrc;
+    if (this.isPublic || env.NODE_AUTH_TOKEN) {
+      const npmrc = join(directory, "npmrc");
+      writeFileSync(
+        npmrc,
+        this.isPublic ? "" : "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n",
+        { mode: 0o600 },
+      );
+      env.NPM_CONFIG_USERCONFIG = npmrc;
+      env.npm_config_userconfig = npmrc;
+    }
     try {
       return callback(directory, env);
     } finally {
@@ -150,7 +164,7 @@ export class Channel {
     }
   }
 
-  pinTo(root, spec = this.distTag) {
+  pinTo(root, spec = this.distTag, reviewedLock) {
     this.assertCurrent(root);
     if (spec !== this.distTag && !Channel.isExactVersion(spec))
       throw new Error(`Invalid CLI version: ${JSON.stringify(spec)}`);
@@ -158,6 +172,11 @@ export class Channel {
       const pin = this.pinDirectory(directory);
       mkdirSync(pin, { recursive: true });
       for (const file of PIN_FILES) cpSync(join(this.pinDirectory(root), file), join(pin, file));
+      const original = new LockedDependencies(
+        readJson(join(pin, "package-lock.json")),
+        readJson(join(pin, "package.json")).overrides,
+        reviewedLock,
+      );
       execFileSync(
         "npm",
         [
@@ -169,14 +188,20 @@ export class Channel {
         ],
         { cwd: pin, env, stdio: "inherit" },
       );
-      execFileSync("npm", ["update", "--package-lock-only", ...this.npmArgs()], {
-        cwd: pin,
-        env,
-        stdio: "inherit",
-      });
+      const overrides = [...original.overrides.keys()];
+      if (overrides.length)
+        execFileSync("npm", ["update", ...overrides, "--package-lock-only", ...this.npmArgs()], {
+          cwd: pin,
+          env,
+          stdio: "inherit",
+        });
       const version = this.cliVersion(directory);
       if (Channel.isExactVersion(spec) && version !== spec)
         throw new Error(`CLI pin does not match the requested version ${spec}.`);
+      const updatedLock = readJson(join(pin, "package-lock.json"));
+      original.constrain(updatedLock, version);
+      original.assertUpdate(updatedLock, version);
+      writeJson(join(pin, "package-lock.json"), updatedLock);
       for (const file of PIN_FILES) cpSync(join(pin, file), join(this.pinDirectory(root), file));
     });
   }
@@ -191,10 +216,22 @@ export class Channel {
     });
   }
 
-  brand(root, sourceSha) {
+  assertVersion(root) {
+    if (this.isMain) return;
+    const version = new PluginVersion(root, this.name, this.cliVersion(root)).value();
+    const entry = readJson(join(root, MARKETPLACE)).plugins.find(
+      (plugin) => plugin.name === "superblocks",
+    );
+    if (readJson(join(root, MANIFEST)).version !== version || entry?.version !== version)
+      throw new Error(
+        `Plugin version is stale; run node .github/scripts/channel.mjs version ${this.name} and commit both manifests.`,
+      );
+  }
+
+  brand(root) {
     if (this.isMain) return;
     const manifest = readJson(join(root, MANIFEST));
-    const version = `0.0.0-${this.name}.g${sourceSha.slice(0, 12)}.cli-${this.cliVersion(root)}`;
+    const version = new PluginVersion(root, this.name, this.cliVersion(root)).value();
     const displayName = this.displayName(manifest.displayName);
     writeJson(join(root, MANIFEST), { ...manifest, displayName, version });
     const marketplace = readJson(join(root, MARKETPLACE));
@@ -208,14 +245,15 @@ export class Channel {
   verify(root, destination) {
     this.assertCurrent(root);
     this.cliVersion(root);
-    this.withNpm((_, env) => {
+    this.assertVersion(root);
+    Channel.named("beta").withNpm((_, env) => {
       const run = (command, args, extra = {}) =>
         execFileSync(command, args, { cwd: root, env, stdio: "inherit", ...extra });
       run("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund", `--registry=${PUBLIC_NPM}`]);
       run("npm", ["test"]);
       const tree = join(destination, "marketplace");
       new ChannelMarketplace(this, root).write(tree);
-      run("npm", ["ci", ...this.npmArgs()], { cwd: join(tree, PLUGIN) });
+      this.install(join(tree, PLUGIN));
       run(process.execPath, ["--test", "tests/installed/dependency-security.test.mjs"], {
         env: { ...env, TEST_PLUGIN_DIRECTORY: join(tree, PLUGIN) },
       });

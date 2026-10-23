@@ -72,28 +72,39 @@ access: `npm login --registry=https://npm.pkg.github.com --auth-type=legacy`.
 
 The **Channels** workflow checks pull requests and pushes to all three branches.
 After a successful push to `main`, it prepares a merge into `next`, preserves
-next's CLI pin and branding, refreshes its locked dependencies within their declared ranges, and runs the tests,
+next's CLI pin and branding, applies explicit security overrides, and runs the tests,
 installed dependency checks, packaging, and credentialless MCP startup check.
-Only then does it push that merge and repeat the process from `next` to `master`.
+Only then does a separate job push that merge. Its push starts the same process from `next` to `master`.
 A successful push directly to `next` propagates to `master` the same way. Changes
 on `master` stay there until explicitly promoted in the other direction.
 
-The cascade runs within one workflow because pushes using `GITHUB_TOKEN` do not
-trigger another push workflow. Shared-file conflicts stop propagation for manual
+Configure `CHANNEL_PUBLISH_TOKEN` with repository contents and workflows write
+permissions (a fine-grained PAT or GitHub App installation token). The default
+`GITHUB_TOKEN` cannot publish workflow-file changes. Only the publish step in a
+separate job receives this credential; validation runs with read-only permissions.
+This token's pushes trigger the next channel's workflow. Shared-file conflicts stop propagation for manual
 resolution on the destination branch. A concurrent destination update rejects
 publication; rerun **Channels** from the parent branch to prepare and test a fresh
 candidate. Publication appends merge commits and never force-pushes.
 
 The first cascade migrates the existing package-only channel snapshots into full
-repository branches, preserving their history, CLI pins, and branding. Run it
+repository branches, preserving their history, CLI pins, and branding. Migration
+compares legacy content with its stamped source and rejects independent edits
+or missing provenance for manual resolution. Run it
 from `main` before relying on direct dev pin updates. Branch protection must
 permit the automation's normal fast-forward pushes; this change does not modify
 repository settings.
 
 Security overrides are shared package settings, so fixes to them merge forward
 while CLI versions stay on their own branches. npm does not inherit the CLI
-monorepo's pnpm overrides. [AR-904](https://linear.app/superblocks/issue/AR-904)
-tracks removing them once published dependencies contain the fixes.
+monorepo's pnpm overrides. A follow-up will remove them once published
+dependencies contain the fixes. Automatic updates preserve unrelated locked
+versions and reject registry or integrity changes. Forward merges accept new
+dependencies only when their exact entries already exist in the incoming branch's
+reviewed lockfile; dev pin updates reject additions. Changes to existing versions
+are limited to the exact CLI pin and explicit overrides.
+If a CLI or override requires additional dependency changes, prepare and review
+that channel's lockfile in a PR before retrying automation.
 
 ### Pin a newer CLI
 
@@ -107,7 +118,11 @@ Without a version, this resolves the channel's npm tag (`beta`, `next`, or
 `master`) to an exact version. The command refuses a different channel's tree.
 Open a PR against that same branch. For beta, also bump the plugin version in
 `.claude-plugin/marketplace.json` and the plugin manifest. Next and dev versions
-include the source commit and CLI version automatically.
+include a plugin-content hash and CLI version automatically. After direct plugin
+edits on next or dev, run `node .github/scripts/channel.mjs version <channel>`
+and commit both manifests. Verification rejects stale versions before forwarding
+or release packaging; require the Channels check on channel PRs to enforce this
+before merge. Direct pushes also fail validation if the version is stale.
 
 To update dev directly from the latest published `@master`:
 

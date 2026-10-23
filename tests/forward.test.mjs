@@ -51,6 +51,11 @@ class ChannelRepository {
       }
       this.pin(version);
       this.brand(channel);
+      if (legacy) {
+        const entry = JSON.parse(readFileSync(join(this.checkout, manifest), "utf8"));
+        entry.version = `0.0.0-${channel}.g${this.main.slice(0, 12)}.cli-${version}`;
+        this.write(manifest, entry);
+      }
       this.commit(branch, `own ${channel} pin`);
     }
     this.git("switch", "--quiet", "main");
@@ -72,6 +77,7 @@ const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
 lock.packages[""].dependencies = pkg.dependencies;
 lock.packages["node_modules/@superblocksteam/cli"].version = version;
 lock.overridesObserved = pkg.overrides;
+if (process.env.FORWARD_FLOAT_DEPENDENCY) lock.packages["node_modules/unrelated"] = { version: "9.9.9", resolved: "https://registry.npmjs.org/unrelated/-/unrelated-9.9.9.tgz" };
 writeFileSync("package-lock.json", JSON.stringify(lock, null, 2) + "\\n");
 `,
       { mode: 0o755 },
@@ -244,6 +250,55 @@ test("migration refuses to discard files unique to the destination snapshot", (t
   const previous = repo.commit("next", "staging addition");
   assert.throws(() => repo.forward("next").prepare(repo.main), /unexpected|unique|discard/i);
   assert.equal(repo.git("rev-parse", "origin/next"), previous);
+});
+
+test("migration rejects independent edits to a shared legacy path", (t) => {
+  const repo = new ChannelRepository(t, true);
+  repo.git("switch", "--quiet", "--detach", "origin/next");
+  repo.write("README.md", "independent staging documentation\n");
+  const previous = repo.commit("next", "edit shared legacy path");
+  assert.throws(() => repo.forward("next").prepare(repo.main), /Legacy.*README.md/);
+  assert.equal(repo.git("rev-parse", "origin/next"), previous);
+});
+
+test("migration rejects independent deletions from the legacy snapshot", (t) => {
+  const repo = new ChannelRepository(t, true);
+  repo.git("switch", "--quiet", "--detach", "origin/next");
+  repo.git("rm", "README.md");
+  const previous = repo.commit("next", "remove legacy documentation");
+  assert.throws(() => repo.forward("next").prepare(repo.main), /Legacy.*README.md/);
+  assert.equal(repo.git("rev-parse", "origin/next"), previous);
+});
+
+test("forward publication rejects unreviewed dependency additions", (t) => {
+  const repo = new ChannelRepository(t);
+  repo.write("README.md", "upstream documentation change\n");
+  const source = repo.commit("main", "update documentation");
+  process.env.FORWARD_FLOAT_DEPENDENCY = "1";
+  const previous = repo.git("rev-parse", "origin/next");
+  assert.throws(() => repo.forward("next").prepare(source), /unreviewed.*unrelated/i);
+  assert.equal(repo.git("rev-parse", "origin/next"), previous);
+});
+
+test("add/add metadata conflicts identify the file without a merge-base blob", (t) => {
+  const repo = new ChannelRepository(t);
+  repo.git("rm", "--quiet", manifest);
+  const withoutManifest = repo.commit("main", "remove manifest before independent additions");
+  repo.git("--git-dir", repo.origin, "update-ref", "refs/heads/next", withoutManifest);
+  repo.git("switch", "--quiet", "--detach", withoutManifest);
+  repo.brand("next");
+  repo.pin("2.0.0-next.1");
+  repo.commit("next", "add next metadata");
+  repo.git("switch", "--quiet", "main");
+  repo.brand("beta");
+  const entry = JSON.parse(readFileSync(join(repo.checkout, manifest), "utf8"));
+  entry.description = "independent upstream metadata";
+  repo.write(manifest, entry);
+  const source = repo.commit("main", "add beta metadata");
+  assert.throws(
+    () => repo.forward("next").prepare(source),
+    /Shared metadata conflict: plugins\/superblocks-plugin\/\.claude-plugin\/plugin.json/,
+  );
 });
 
 test("conflicting shared code, failed npm resolution, and concurrent updates never overwrite the destination", (t) => {

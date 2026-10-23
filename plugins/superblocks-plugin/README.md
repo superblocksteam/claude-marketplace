@@ -1,7 +1,7 @@
 # Superblocks
 
 Build, import, and manage Superblocks applications from Claude. Connect to your
-Superblocks account to create apps, edit them with Clark, work with integrations,
+Superblocks account to create apps, edit them with Superblocks, work with integrations,
 and publish apps using the permissions of your signed-in account.
 
 ## Requirements and supported apps
@@ -88,5 +88,5 @@ Learn more in the
 
 ## License
 
-This plugin uses the [Superblocks Community Software License](LICENSE), matching
+This plugin uses the [Superblocks Community License Agreement](LICENSE), matching
 the license distributed with the Superblocks CLI.

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { ChannelPublication } from "./channel-publication.mjs";
 import { BOT, Channel, PIN_FILES, PLUGIN } from "./channels.mjs";
 
 export class DevPinUpdate {
@@ -35,7 +36,7 @@ export class DevPinUpdate {
         return `master already pins ${version}; no update needed.`;
       const previous = git("rev-parse", "HEAD");
       channel.pinTo(checkout, version);
-      channel.brand(checkout, previous);
+      channel.brand(checkout);
       channel.verify(checkout, join(directory, "dist"));
       if (this.#latestVersion(channel) !== version)
         throw new Error("The master CLI tag changed during verification; retry this stale update.");
@@ -46,16 +47,7 @@ export class DevPinUpdate {
         ".claude-plugin/marketplace.json",
       );
       git("commit", "--quiet", "-m", `chore(plugin): pin dev CLI ${version}`);
-      git(
-        "-c",
-        "credential.helper=",
-        "-c",
-        "credential.helper=!gh auth git-credential",
-        "push",
-        "--quiet",
-        "origin",
-        "HEAD:refs/heads/master",
-      );
+      new ChannelPublication(checkout, "master").publish(git("rev-parse", "HEAD"), previous);
       return `master now pins ${version} at ${git("rev-parse", "HEAD")}.`;
     } finally {
       rmSync(directory, { recursive: true, force: true });
