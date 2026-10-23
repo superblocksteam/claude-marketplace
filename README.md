@@ -130,21 +130,28 @@ To update dev directly from the latest published `@master`:
 npm run update:dev
 ```
 
-This requires Node.js 24, Git, authenticated `gh` with repository write access,
-and GitHub Packages read access. `NODE_AUTH_TOKEN` can supply the package read
-token; GitHub authentication remains separate through `gh` or `GH_TOKEN`.
-The command clones the latest `master` into a temporary directory, resolves the
-exact CLI version, refreshes the pin, lockfile, and branding, and runs the same full
-verification as CI before pushing to `master`. It leaves the caller's checkout
-untouched and creates no pin PR. An unchanged version does nothing. Failed
-verification or a concurrent branch update leaves the remote branch untouched.
-Npm pin resolution uses only the package manifests in an isolated directory,
-with proxying disabled, TLS verification enabled, and GitHub write credentials
-removed from its environment.
+This requires Node.js 24 and authenticated `gh` with permission to dispatch Actions.
+The command requests **Actions > Update dev pin** on `main` and returns after GitHub
+accepts the request. Follow that workflow for the final result; the local command
+does not install or execute the new CLI.
 
-Superblocks' master publish automation can keep invoking `npm run update:dev`;
-successful updates now land directly on marketplace `master`. Existing pin PRs
-against `main` belong to the old model and should be closed without merging.
+The workflow prepares an immutable commit from the latest `master`, resolving the
+exact CLI version and refreshing the pin, lockfile, and branding without running
+package scripts. A separate runner verifies that commit, builds and smoke-tests
+the bundle, and rejects changes to tracked files during verification. A third
+runner publishes the original prepared commit only after verification passes.
+The CLI verification runner has no repository write credential. An unchanged
+version does nothing; failed verification, a moved npm tag, or a concurrent branch
+update leaves the remote branch untouched. The caller's checkout stays unchanged,
+and no pin PR is created.
+
+Configure `GH_PACKAGES_READ_TOKEN` for private package access and
+`CHANNEL_PUBLISH_TOKEN` for publication. Pin resolution uses isolated package
+manifests, disabled proxying, verified TLS, and no GitHub write token in the npm
+environment. Superblocks' master publish automation can keep invoking
+`npm run update:dev` with workflow-dispatch permission; publication status now lives
+in the requested workflow. Existing pin PRs against `main` belong to the old model
+and should be closed without merging.
 
 ## Cowork releases
 

@@ -1,15 +1,55 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { DevPinUpdate } from "../.github/scripts/update-dev-pin.mjs";
 
 const plugin = "plugins/superblocks-plugin";
 
-test("dev publishes a verified pin directly to master, leaving main and the caller's checkout untouched", (t) => {
+test("the local dev update only requests the isolated workflow", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-dev-dispatch-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const calls = join(directory, "calls.json");
+  writeFileSync(
+    join(directory, "gh"),
+    `#!${process.execPath}\nimport { writeFileSync } from "node:fs"; writeFileSync(process.env.DISPATCH_CALLS, JSON.stringify(process.argv.slice(2)));\n`,
+    { mode: 0o755 },
+  );
+  const script = fileURLToPath(new URL("../.github/scripts/update-dev.mjs", import.meta.url));
+  const output = execFileSync(process.execPath, [script], {
+    env: { ...process.env, PATH: directory, DISPATCH_CALLS: calls },
+    encoding: "utf8",
+  });
+  assert.deepEqual(JSON.parse(readFileSync(calls, "utf8")), [
+    "workflow",
+    "run",
+    "update-dev.yml",
+    "--repo",
+    "superblocksteam/claude-marketplace",
+    "--ref",
+    "main",
+  ]);
+  assert.match(output, /requested/i);
+  const env = { ...process.env, PATH: directory };
+  delete env.GH_TOKEN;
+  const publish = spawnSync(
+    process.execPath,
+    [
+      fileURLToPath(new URL("../.github/scripts/dev-pin.mjs", import.meta.url)),
+      "publish",
+      "0".repeat(40),
+    ],
+    { env, encoding: "utf8" },
+  );
+  assert.notEqual(publish.status, 0);
+  assert.match(publish.stderr, /Configure CHANNEL_PUBLISH_TOKEN/);
+});
+
+test("dev prepares an immutable pin, verifies it separately, and publishes without executing the CLI", (t) => {
   const directory = mkdtempSync(join(tmpdir(), "superblocks-dev-update-"));
   const environment = { ...process.env };
   t.after(() => {
@@ -127,6 +167,7 @@ else if (!["test", "ci", "update"].includes(args[0])) process.exit(2);
     `#!${process.execPath}\n${common}
 assert.equal(readFileSync(args[1], "utf8"), "test bundle");
 if (state.failSmoke) process.exit(19);
+if (state.tamperDuringSmoke) writeFileSync("plugins/superblocks-plugin/package.json", JSON.stringify({dependencies:{"@superblocksteam/cli":"9.9.9"}}));
 if (state.advanceDuringSmoke) {
   const env = { ...process.env, GIT_AUTHOR_NAME: "test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "test", GIT_COMMITTER_EMAIL: "test@example.com" };
   const git = (...args) => execFileSync("git", ["--git-dir", state.origin, ...args], { env, encoding: "utf8" }).trim();
@@ -143,9 +184,57 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
     git("fetch", "--quiet", "origin", "master");
     return git("rev-parse", "FETCH_HEAD");
   };
-  const update = new DevPinUpdate();
+  const update = new DevPinUpdate(checkout);
+  const publish = () => {
+    const candidate = update.prepare();
+    if (!candidate.changed) return `master already pins ${candidate.version}`;
+    const bundle = join(directory, "candidate.bundle");
+    git("update-ref", "refs/heads/dev-pin-candidate", candidate.commit);
+    git("bundle", "create", bundle, "refs/heads/dev-pin-candidate");
+    const verification = join(directory, "verification");
+    git("worktree", "add", "--quiet", "--detach", verification, candidate.commit);
+    try {
+      new DevPinUpdate(verification).verify(candidate.commit, join(directory, "dist"));
+    } finally {
+      git("worktree", "remove", "--force", verification);
+      rmSync(join(directory, "dist"), { recursive: true, force: true });
+    }
+    const beforePublish = readFileSync(callsFile, "utf8").trim().split("\n").length;
+    const publisher = join(directory, "publisher");
+    git("clone", "--quiet", origin, publisher);
+    let result;
+    try {
+      execFileSync("git", ["bundle", "unbundle", bundle], { cwd: publisher });
+      result = new DevPinUpdate(publisher).publish(candidate.commit);
+      assert.equal(tip(), candidate.commit);
+    } finally {
+      rmSync(publisher, { recursive: true, force: true });
+    }
+    const publicationCalls = readFileSync(callsFile, "utf8")
+      .trim()
+      .split("\n")
+      .slice(beforePublish)
+      .map(JSON.parse);
+    assert.deepEqual(
+      publicationCalls.map(({ command, args }) => [command, args[0]]),
+      [["npm", "view"]],
+    );
+    return result;
+  };
   state({ version: "1.0.1" });
-  assert.match(update.publish(), /master now pins 1\.0\.1/);
+  const prepared = update.prepare();
+  assert.equal(prepared.changed, true);
+  assert.equal(tip(), main);
+  assert.ok(
+    readFileSync(callsFile, "utf8")
+      .trim()
+      .split("\n")
+      .map(JSON.parse)
+      .every(
+        ({ command, args }) => command === "npm" && ["view", "install", "update"].includes(args[0]),
+      ),
+  );
+  assert.match(publish(), /master now pins 1\.0\.1/);
   const published = tip();
   assert.equal(
     JSON.parse(git("show", `${published}:${plugin}/package.json`)).dependencies[
@@ -163,7 +252,7 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
       .filter((call) => call.command === "npm")
       .every((call) => call.proxy === "null" && call.tls === "true"),
   );
-  assert.match(update.publish(), /already pins 1\.0\.1/);
+  assert.match(publish(), /already pins 1\.0\.1/);
   assert.equal(tip(), published);
   console.log(
     "Direct dev update observed:",
@@ -175,9 +264,9 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
       boundaryCalls: calls.map(({ command, args }) => ({ command, args })),
     }),
   );
-  for (const failure of ["failPin", "corruptPin", "failVerify", "failSmoke"]) {
+  for (const failure of ["failPin", "corruptPin", "failVerify", "failSmoke", "tamperDuringSmoke"]) {
     state({ version: "1.0.2", [failure]: true });
-    assert.throws(() => update.publish());
+    assert.throws(() => publish());
     assert.equal(tip(), published);
     console.log("Dev update rejected; master preserved:", failure, published);
   }
@@ -192,16 +281,16 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
     "1.0.2\n",
   ]) {
     state({ version });
-    assert.throws(() => update.publish(), /Invalid CLI version/);
+    assert.throws(() => publish(), /Invalid CLI version/);
     assert.equal(tip(), published);
   }
   for (const rawVersion of ["", "not JSON"]) {
     state({ rawVersion });
-    assert.throws(() => update.publish(), /invalid JSON/);
+    assert.throws(() => publish(), /invalid JSON/);
   }
   state({ version: "1.0.2", versionAfter: "1.0.3" });
   assert.throws(
-    () => update.publish(),
+    () => publish(),
     (error) => {
       console.log("Dev stale registry tag rejected:", error.message);
       return /changed|stale/i.test(error.message);
@@ -209,7 +298,7 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
   );
   assert.equal(tip(), published);
   state({ version: "1.0.4", advanceDuringSmoke: true, origin });
-  assert.throws(() => update.publish(), /git .*push/);
+  assert.throws(() => publish(), /changed|stale|push/);
   const raced = tip();
   assert.notEqual(raced, published);
   assert.equal(
@@ -218,7 +307,7 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
   );
   console.log("Dev concurrent push rejected; existing CLI pin preserved:", raced);
   state({ version: "1.0.5", rollbackDuringSmoke: main, origin });
-  assert.throws(() => update.publish(), /changed|stale|push/);
+  assert.throws(() => publish(), /changed|stale|push/);
   assert.equal(tip(), main);
   console.log("Dev rollback preserved:", tip());
 });

@@ -4,54 +4,89 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ChannelPublication } from "./channel-publication.mjs";
-import { BOT, Channel, PIN_FILES, PLUGIN } from "./channels.mjs";
+import { BOT, Channel, MANIFEST, MARKETPLACE, PIN_FILES, PLUGIN } from "./channels.mjs";
 
 export class DevPinUpdate {
-  publish() {
+  constructor(repository, remote = "origin") {
+    Object.assign(this, { repository, remote });
+  }
+
+  prepare() {
     const channel = Channel.named("dev");
+    const version = this.#latestVersion(channel);
+    const previous = this.#tip();
     const directory = mkdtempSync(join(tmpdir(), "superblocks-dev-pin-"));
     const checkout = join(directory, "checkout");
-    const git = (...args) =>
-      execFileSync("git", args, {
-        cwd: checkout,
-        encoding: "utf8",
-        env: { ...process.env, ...BOT, GIT_TERMINAL_PROMPT: "0" },
-      }).trim();
+    this.#git(["worktree", "add", "--quiet", "--detach", checkout, previous]);
     try {
-      const version = this.#latestVersion(channel);
-      execFileSync(
-        "git",
-        [
-          "clone",
-          "--quiet",
-          "--single-branch",
-          "--branch=master",
-          "https://github.com/superblocksteam/claude-marketplace.git",
-          checkout,
-        ],
-        { stdio: "inherit" },
-      );
       channel.assertCurrent(checkout);
       if (channel.cliVersion(checkout) === version)
-        return `master already pins ${version}; no update needed.`;
-      const previous = git("rev-parse", "HEAD");
+        return { changed: false, commit: previous, version };
       channel.pinTo(checkout, version);
       channel.brand(checkout);
-      channel.verify(checkout, join(directory, "dist"));
-      if (this.#latestVersion(channel) !== version)
-        throw new Error("The master CLI tag changed during verification; retry this stale update.");
-      git(
-        "add",
-        ...PIN_FILES.map((file) => `${PLUGIN}/${file}`),
-        `${PLUGIN}/.claude-plugin/plugin.json`,
-        ".claude-plugin/marketplace.json",
-      );
-      git("commit", "--quiet", "-m", `chore(plugin): pin dev CLI ${version}`);
-      new ChannelPublication(checkout, "master").publish(git("rev-parse", "HEAD"), previous);
-      return `master now pins ${version} at ${git("rev-parse", "HEAD")}.`;
+      this.#git(["add", ...this.#files()], checkout);
+      const tree = this.#git(["write-tree"], checkout);
+      const commit = this.#git([
+        "commit-tree",
+        tree,
+        "-p",
+        previous,
+        "-m",
+        `chore(plugin): pin dev CLI ${version}`,
+      ]);
+      return { changed: true, commit, version };
     } finally {
+      this.#git(["worktree", "remove", "--force", checkout]);
       rmSync(directory, { recursive: true, force: true });
     }
+  }
+
+  verify(commit, destination) {
+    this.#assertCommit(commit);
+    if (this.#git(["rev-parse", "HEAD"]) !== commit)
+      throw new Error("Check out the prepared dev pin before verification.");
+    Channel.named("dev").verify(this.repository, destination);
+    this.#git(["diff", "--exit-code", commit, "--"]);
+  }
+
+  publish(commit) {
+    this.#assertCommit(commit);
+    const previous = this.#tip();
+    const parents = this.#git(["rev-list", "--parents", "-n", "1", commit]).split(" ").slice(1);
+    if (parents.length !== 1 || parents[0] !== previous)
+      throw new Error("master changed; discard this stale candidate and retry.");
+    const changed = this.#git(["diff", "--name-only", previous, commit]).split("\n");
+    if (changed.some((file) => !this.#files().includes(file)))
+      throw new Error("The dev pin candidate changes files outside its pin and branding.");
+    const pkg = JSON.parse(this.#git(["show", `${commit}:${PLUGIN}/package.json`]));
+    const version = pkg.dependencies["@superblocksteam/cli"];
+    if (this.#latestVersion(Channel.named("dev")) !== version)
+      throw new Error("The master CLI tag changed during verification; retry this stale update.");
+    new ChannelPublication(this.repository, "master", this.remote).publish(commit, previous);
+    return `master now pins ${version} at ${commit}.`;
+  }
+
+  #files() {
+    return [...PIN_FILES.map((file) => `${PLUGIN}/${file}`), MANIFEST, MARKETPLACE];
+  }
+
+  #assertCommit(commit) {
+    if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error("Expected a full Git commit SHA.");
+    this.#git(["cat-file", "-e", `${commit}^{commit}`]);
+  }
+
+  #tip() {
+    this.#git(["fetch", "--quiet", "--no-tags", this.remote, "refs/heads/master"]);
+    return this.#git(["rev-parse", "FETCH_HEAD"]);
+  }
+
+  #git(args, cwd = this.repository) {
+    return execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      env: { ...process.env, ...BOT, GIT_TERMINAL_PROMPT: "0" },
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
   }
 
   #latestVersion(channel) {
