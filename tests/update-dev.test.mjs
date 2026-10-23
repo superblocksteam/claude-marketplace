@@ -86,7 +86,11 @@ test("dev prepares an immutable pin, verifies it separately, and publishes witho
   write(`${plugin}/package-lock.json`, {
     packages: {
       "": { dependencies: { "@superblocksteam/cli": "1.0.0" } },
-      "node_modules/@superblocksteam/cli": { version: "1.0.0" },
+      "node_modules/@superblocksteam/cli": {
+        version: "1.0.0",
+        resolved: `https://npm.pkg.github.com/download/@superblocksteam/cli/1.0.0/${"a".repeat(40)}`,
+        integrity: "sha512-fixture-1.0.0",
+      },
       "node_modules/unrelated": { version: "1.0.0" },
     },
   });
@@ -134,6 +138,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { execFileSync } from "node:child_process";
 const args = process.argv.slice(2);
 const state = JSON.parse(readFileSync(process.env.DEV_STATE, "utf8"));
+const artifact = { tarball: "https://npm.pkg.github.com/download/@superblocksteam/cli/" + state.version + "/" + "a".repeat(40), integrity: "sha512-fixture-" + state.version };
 appendFileSync(process.env.DEV_CALLS, JSON.stringify({ command: process.argv[1].split("/").pop(), args, token: process.env.GH_TOKEN, projectNpmrc: existsSync(".npmrc"), proxy: process.env.npm_config_https_proxy, tls: process.env.npm_config_strict_ssl }) + "\n");
 assert.equal(process.env.GH_TOKEN, undefined);
 if (args[0] === "test" || process.argv[1].endsWith("/python3")) assert.equal(process.env.NODE_AUTH_TOKEN, undefined);
@@ -141,7 +146,12 @@ if (args[0] === "test" || process.argv[1].endsWith("/python3")) assert.equal(pro
   writeFileSync(
     join(bin, "npm"),
     `#!${process.execPath}\n${common}
-if (args[0] === "view") {
+if (args[0] === "view" && args[2] === "dist") {
+  assert.equal(args[1], "@superblocksteam/cli@" + state.version);
+  if (state.changedDigest) artifact.integrity = "sha512-replaced";
+  if (state.changedTarball) artifact.tarball += "-replaced";
+  console.log(JSON.stringify(Object.hasOwn(state, "distValue") ? state.distValue : artifact));
+} else if (args[0] === "view") {
   state.reads = (state.reads ?? 0) + 1;
   writeFileSync(process.env.DEV_STATE, JSON.stringify(state));
   console.log(state.rawVersion ?? JSON.stringify(state.reads > 1 && state.versionAfter ? state.versionAfter : state.version));
@@ -155,6 +165,8 @@ else if (args[0] === "install") {
   const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
   pkg.dependencies["@superblocksteam/cli"] = state.version;
   lock.packages["node_modules/@superblocksteam/cli"].version = state.version;
+  lock.packages["node_modules/@superblocksteam/cli"].resolved = artifact.tarball;
+  lock.packages["node_modules/@superblocksteam/cli"].integrity = artifact.integrity;
   if (state.requiredDependency) {
     lock.packages["node_modules/@superblocksteam/cli"].dependencies = {unrelated:"^1.2.0"};
     lock.packages["node_modules/unrelated"].version = "1.2.0";
@@ -231,7 +243,10 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
       .map(JSON.parse);
     assert.deepEqual(
       publicationCalls.map(({ command, args }) => [command, args[0]]),
-      [["npm", "view"]],
+      [
+        ["npm", "view"],
+        ["npm", "view"],
+      ],
     );
     return result;
   };
@@ -311,6 +326,16 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
   for (const rawVersion of ["", "not JSON"]) {
     state({ rawVersion });
     assert.throws(() => publish(), /invalid JSON/);
+  }
+  for (const replacement of ["changedDigest", "changedTarball"]) {
+    state({ version: "1.0.2", [replacement]: true });
+    assert.throws(() => publish(), /artifact.*changed|integrity/i);
+    assert.equal(tip(), published);
+  }
+  for (const distValue of [null, "invalid metadata", {}]) {
+    state({ version: "1.0.2", distValue });
+    assert.throws(() => publish(), /artifact.*changed/i);
+    assert.equal(tip(), published);
   }
   state({ version: "1.0.2", versionAfter: "1.0.3" });
   assert.throws(

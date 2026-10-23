@@ -60,8 +60,10 @@ export class DevPinUpdate {
       throw new Error("The dev pin candidate changes files outside its pin and branding.");
     const pkg = JSON.parse(this.#git(["show", `${commit}:${PLUGIN}/package.json`]));
     const version = pkg.dependencies["@superblocksteam/cli"];
-    if (this.#latestVersion(Channel.named("dev")) !== version)
+    const channel = Channel.named("dev");
+    if (this.#latestVersion(channel) !== version)
       throw new Error("The master CLI tag changed during verification; retry this stale update.");
+    this.#assertArtifact(commit, channel, version);
     new ChannelPublication(this.repository, "master", this.remote).publish(commit, previous);
     return `master now pins ${version} at ${commit}.`;
   }
@@ -90,28 +92,43 @@ export class DevPinUpdate {
   }
 
   #latestVersion(channel) {
+    const value = this.#registryValue(channel, "master", "version");
+    if (!Channel.isExactVersion(value))
+      throw new Error(`Invalid CLI version: ${JSON.stringify(value)}`);
+    return value;
+  }
+
+  #assertArtifact(commit, channel, version) {
+    const lock = JSON.parse(this.#git(["show", `${commit}:${PLUGIN}/package-lock.json`]));
+    const pinned = lock.packages["node_modules/@superblocksteam/cli"];
+    if (pinned?.version !== version || !pinned.resolved || !pinned.integrity)
+      throw new Error("The prepared CLI pin is missing its exact artifact integrity.");
+    const dist = this.#registryValue(channel, version, "dist");
+    if (dist?.tarball !== pinned.resolved || dist?.integrity !== pinned.integrity)
+      throw new Error(
+        "The CLI artifact changed after preparation; discard this candidate and investigate the registry integrity.",
+      );
+  }
+
+  #registryValue(channel, spec, field) {
     return channel.withNpm((cwd, env) => {
       const output = execFileSync(
         "npm",
         [
           "view",
-          "@superblocksteam/cli@master",
-          "version",
+          `@superblocksteam/cli@${spec}`,
+          field,
           "--json",
           "--prefer-online",
           ...channel.npmArgs(),
         ],
         { cwd, env, encoding: "utf8" },
       );
-      let value;
       try {
-        value = JSON.parse(output);
+        return JSON.parse(output);
       } catch (cause) {
-        throw new Error("npm view @superblocksteam/cli@master returned invalid JSON.", { cause });
+        throw new Error(`npm view @superblocksteam/cli@${spec} returned invalid JSON.`, { cause });
       }
-      if (!Channel.isExactVersion(value))
-        throw new Error(`Invalid CLI version: ${JSON.stringify(value)}`);
-      return value;
     });
   }
 }

@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, posix } from "node:path";
 
 import { LockedDependencies } from "./locked-dependencies.mjs";
 import { PluginVersion } from "./plugin-version.mjs";
@@ -116,7 +116,10 @@ export class Channel {
     if (!entry.resolved) return;
     const installedName = path.split("node_modules/").at(-1);
     const name = entry.name ?? installedName;
-    if (name !== installedName && !this.#hasAlias(lock, installedName, name))
+    if (
+      name !== installedName &&
+      (installedName === "@superblocksteam/cli" || !this.#hasAlias(lock, path, name))
+    )
       throw new Error(`Unexpected package alias for ${path}.`);
     const registry = name.startsWith("@superblocksteam/") ? this.registry : PUBLIC_NPM;
     const url = new URL(entry.resolved);
@@ -134,12 +137,37 @@ export class Channel {
       throw new Error(`Unexpected package tarball for ${path}.`);
   }
 
-  #hasAlias(lock, installedName, name) {
-    return Object.values(lock.packages).some((entry) =>
-      [entry.dependencies?.[installedName], entry.optionalDependencies?.[installedName]].some(
-        (spec) => typeof spec === "string" && spec.startsWith(`npm:${name}@`),
-      ),
+  #hasAlias(lock, path, name) {
+    const installedName = path.split("node_modules/").at(-1);
+    const references = [];
+    for (const [parent, entry] of Object.entries(lock.packages)) {
+      const spec =
+        entry.optionalDependencies?.[installedName] ??
+        entry.dependencies?.[installedName] ??
+        entry.devDependencies?.[installedName];
+      if (spec === undefined || this.#dependencyPath(lock, parent, installedName) !== path)
+        continue;
+      references.push(spec);
+    }
+    const prefix = `npm:${name}@`;
+    return (
+      references.length > 0 &&
+      references.every(
+        (spec) =>
+          typeof spec === "string" && spec.startsWith(prefix) && spec.length > prefix.length,
+      )
     );
+  }
+
+  #dependencyPath(lock, parent, name) {
+    let directory = parent;
+    while (true) {
+      const path = posix.join(directory, "node_modules", name);
+      if (Object.hasOwn(lock.packages, path)) return path;
+      if (!directory || directory === ".") return undefined;
+      directory = posix.dirname(directory);
+      if (posix.basename(directory) === "node_modules") directory = posix.dirname(directory);
+    }
   }
 
   npmArgs() {

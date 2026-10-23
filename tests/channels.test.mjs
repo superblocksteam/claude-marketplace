@@ -152,3 +152,50 @@ test("pin verification rejects another package's tarball on the expected registr
   writeJson(path, lock);
   assert.throws(() => current.cliVersion(directory), /alias.*node_modules\/qs/i);
 });
+
+test("a decoy alias cannot substitute another package for the pinned CLI", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-cli-identity-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  new ChannelMarketplace(current, root).write(directory);
+  const path = join(directory, PLUGIN, "package-lock.json");
+  const lock = readJson(path);
+  const cli = lock.packages["node_modules/@superblocksteam/cli"];
+  cli.name = "unrelated";
+  cli.resolved = `https://registry.npmjs.org/unrelated/-/unrelated-${cli.version}.tgz`;
+  lock.packages["node_modules/decoy"] = {
+    version: "1.0.0",
+    dependencies: { "@superblocksteam/cli": `npm:unrelated@${cli.version}` },
+  };
+  writeJson(path, lock);
+  assert.throws(() => current.cliVersion(directory), /alias.*@superblocksteam\/cli/i);
+});
+
+test("an alias declaration only authorizes the dependency path it resolves to", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-alias-path-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  new ChannelMarketplace(current, root).write(directory);
+  const path = join(directory, PLUGIN, "package-lock.json");
+  const lock = readJson(path);
+  const alias = {
+    name: "unrelated",
+    version: "1.0.0",
+    resolved: "https://registry.npmjs.org/unrelated/-/unrelated-1.0.0.tgz",
+  };
+  lock.packages["node_modules/renamed"] = alias;
+  lock.packages["node_modules/decoy"] = {
+    version: "1.0.0",
+    dependencies: { renamed: "npm:unrelated@1.0.0" },
+  };
+  lock.packages["node_modules/decoy/node_modules/renamed"] = alias;
+  writeJson(path, lock);
+  assert.throws(() => current.cliVersion(directory), /alias.*node_modules\/renamed/i);
+  delete lock.packages["node_modules/renamed"];
+  writeJson(path, lock);
+  assert.doesNotThrow(() => current.cliVersion(directory));
+  lock.packages["node_modules/decoy/node_modules/@scope/consumer"] = {
+    version: "1.0.0",
+    dependencies: { renamed: "1.0.0" },
+  };
+  writeJson(path, lock);
+  assert.throws(() => current.cliVersion(directory), /alias.*decoy\/node_modules\/renamed/i);
+});

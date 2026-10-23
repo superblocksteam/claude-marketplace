@@ -149,6 +149,10 @@ version does nothing; failed verification, a moved npm tag, or a concurrent bran
 update leaves the remote branch untouched. The caller's checkout stays unchanged,
 and no pin PR is created.
 
+Dev promotion trusts the CLI master publishing pipeline. Before pushing, the
+workflow also requires the exact version's registry tarball URL and integrity to
+match the prepared lockfile. A mismatch stops publication for investigation.
+
 Configure `GH_PACKAGES_READ_TOKEN` for private package access and
 `CHANNEL_PUBLISH_TOKEN` for publication. Pin resolution uses isolated package
 manifests, disabled proxying, verified TLS, and no GitHub write token in the npm
