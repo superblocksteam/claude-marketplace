@@ -126,14 +126,9 @@ export class ChannelBranch {
         throw new Error(`Legacy channel independently deleted ${file}; migrate it manually.`);
     }
     for (const file of files) {
-      if (file === `${PLUGIN}/package-lock.json`) continue;
       let sourcePath = file;
-      const legacyPin = `channels/${this.channel.name}/package.json`;
-      if (
-        file === `${PLUGIN}/package.json` &&
-        this.#run(["cat-file", "-e", `${baseline}:${legacyPin}`], checkout).status === 0
-      )
-        sourcePath = legacyPin;
+      if (file === `${PLUGIN}/package.json` || file === `${PLUGIN}/package-lock.json`)
+        sourcePath = `channels/${this.channel.name}/${file.slice(PLUGIN.length + 1)}`;
       const original = this.#run(["show", `${baseline}:${sourcePath}`], checkout);
       if (original.status !== 0)
         throw new Error(

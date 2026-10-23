@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -34,11 +34,23 @@ class ChannelRepository {
     });
     this.pin("1.0.0");
     this.brand("beta");
-    this.main = this.commit("main", "initial source");
-    for (const [branch, channel, version] of [
+    const destinations = [
       ["next", "next", "2.0.0-next.1"],
       ["master", "dev", "3.0.0-SNAPSHOT.1"],
-    ]) {
+    ];
+    if (legacy) {
+      for (const [, channel, version] of destinations) {
+        this.pin(version);
+        for (const file of ["package.json", "package-lock.json"])
+          this.write(
+            `channels/${channel}/${file}`,
+            readFileSync(join(this.checkout, plugin, file), "utf8"),
+          );
+      }
+      this.pin("1.0.0");
+    }
+    this.main = this.commit("main", "initial source");
+    for (const [branch, channel, version] of destinations) {
       this.git("switch", "--quiet", "--detach", this.main);
       if (legacy) {
         this.git("switch", "--quiet", "--orphan", `legacy-${channel}`);
@@ -59,6 +71,10 @@ class ChannelRepository {
       this.commit(branch, `own ${channel} pin`);
     }
     this.git("switch", "--quiet", "main");
+    if (legacy) {
+      this.git("rm", "-r", "--quiet", "channels");
+      this.main = this.commit("main", "move channel pins to their branches");
+    }
     const bin = join(this.directory, "bin");
     mkdirSync(bin);
     this.npmCalls = join(this.directory, "npm-calls.jsonl");
@@ -268,6 +284,22 @@ test("migration rejects independent deletions from the legacy snapshot", (t) => 
   const previous = repo.commit("next", "remove legacy documentation");
   assert.throws(() => repo.forward("next").prepare(repo.main), /Legacy.*README.md/);
   assert.equal(repo.git("rev-parse", "origin/next"), previous);
+});
+
+test("migration rejects a substituted legacy lockfile before installing it", (t) => {
+  const repo = new ChannelRepository(t, true);
+  repo.git("switch", "--quiet", "--detach", "origin/next");
+  const lock = repo.json("HEAD", `${plugin}/package-lock.json`);
+  lock.packages["node_modules/substituted"] = {
+    version: "1.0.0",
+    resolved: "https://registry.npmjs.org/substituted/-/substituted-1.0.0.tgz",
+    integrity: "changed-lock",
+  };
+  repo.write(`${plugin}/package-lock.json`, lock);
+  const previous = repo.commit("next", "substitute legacy lockfile");
+  assert.throws(() => repo.forward("next").prepare(repo.main), /Legacy.*package-lock.json/);
+  assert.equal(repo.git("rev-parse", "origin/next"), previous);
+  assert.equal(existsSync(repo.npmCalls), false, "substituted lockfile must never reach npm");
 });
 
 test("forward publication rejects unreviewed dependency additions", (t) => {

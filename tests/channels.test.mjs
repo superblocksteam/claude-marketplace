@@ -125,7 +125,7 @@ test("dev rejects public-registry substitution of any scoped dependency", (t) =>
   const lock = readJson(path);
   for (const [name, entry] of Object.entries(lock.packages)) {
     if (name.split("node_modules/").at(-1).startsWith("@superblocksteam/") && entry.resolved)
-      entry.resolved = `https://npm.pkg.github.com/${name.split("node_modules/").at(-1)}/${entry.version}`;
+      entry.resolved = `https://npm.pkg.github.com/download/${name.split("node_modules/").at(-1)}/${entry.version}/${"a".repeat(40)}`;
   }
   lock.packages["node_modules/parent/node_modules/@superblocksteam/sdk"] = {
     version: "1.0.0",
@@ -136,4 +136,19 @@ test("dev rejects public-registry substitution of any scoped dependency", (t) =>
     () => Channel.named("dev").cliVersion(directory),
     /registry.*@superblocksteam\/sdk/i,
   );
+});
+
+test("pin verification rejects another package's tarball on the expected registry", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-tarball-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  new ChannelMarketplace(current, root).write(directory);
+  const path = join(directory, PLUGIN, "package-lock.json");
+  const lock = readJson(path);
+  lock.packages["node_modules/qs"].resolved =
+    "https://registry.npmjs.org/unrelated/-/unrelated-6.16.1.tgz";
+  writeJson(path, lock);
+  assert.throws(() => current.cliVersion(directory), /tarball.*node_modules\/qs/i);
+  lock.packages["node_modules/qs"].name = "unrelated";
+  writeJson(path, lock);
+  assert.throws(() => current.cliVersion(directory), /alias.*node_modules\/qs/i);
 });

@@ -107,15 +107,39 @@ export class Channel {
       throw new Error("The plugin package and lockfile must pin the same exact CLI version.");
     }
     for (const [path, entry] of Object.entries(lock.packages)) {
-      if (!entry.resolved) continue;
-      const expected = path.split("node_modules/").at(-1).startsWith("@superblocksteam/")
-        ? this.registry
-        : PUBLIC_NPM;
-      const url = new URL(entry.resolved);
-      if (url.origin !== new URL(expected).origin || url.username || url.password)
-        throw new Error(`Unexpected package registry for ${path}.`);
+      this.#assertPackageSource(path, entry, lock);
     }
     return spec;
+  }
+
+  #assertPackageSource(path, entry, lock) {
+    if (!entry.resolved) return;
+    const installedName = path.split("node_modules/").at(-1);
+    const name = entry.name ?? installedName;
+    if (name !== installedName && !this.#hasAlias(lock, installedName, name))
+      throw new Error(`Unexpected package alias for ${path}.`);
+    const registry = name.startsWith("@superblocksteam/") ? this.registry : PUBLIC_NPM;
+    const url = new URL(entry.resolved);
+    if (url.origin !== new URL(registry).origin || url.username || url.password)
+      throw new Error(`Unexpected package registry for ${path}.`);
+    const pathname = decodeURIComponent(url.pathname);
+    const publicPath = `/${name}/-/${name.split("/").at(-1)}-${entry.version}.tgz`;
+    const privatePrefix = `/download/${name}/${entry.version}/`;
+    const matches =
+      registry === PUBLIC_NPM
+        ? pathname === publicPath
+        : pathname.startsWith(privatePrefix) &&
+          /^[0-9a-f]{40}$/.test(pathname.slice(privatePrefix.length));
+    if (!matches || url.search || url.hash)
+      throw new Error(`Unexpected package tarball for ${path}.`);
+  }
+
+  #hasAlias(lock, installedName, name) {
+    return Object.values(lock.packages).some((entry) =>
+      [entry.dependencies?.[installedName], entry.optionalDependencies?.[installedName]].some(
+        (spec) => typeof spec === "string" && spec.startsWith(`npm:${name}@`),
+      ),
+    );
   }
 
   npmArgs() {
