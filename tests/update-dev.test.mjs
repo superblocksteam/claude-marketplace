@@ -339,7 +339,13 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
     ["corruptPin", /package and lockfile must pin the same exact CLI version/],
     ["failVerify", { status: 18, message: /npm test/ }],
     ["failSmoke", { status: 19, message: /python3/ }],
-    ["tamperDuringSmoke", { status: 1, message: /git diff --exit-code/ }],
+    [
+      "tamperDuringSmoke",
+      {
+        message:
+          /Verification changed tracked files.*plugins\/superblocks-plugin\/package.json.*Re-run all jobs/,
+      },
+    ],
   ]) {
     state({ version: "1.0.2", [failure]: true });
     assert.throws(() => publish(), expected);

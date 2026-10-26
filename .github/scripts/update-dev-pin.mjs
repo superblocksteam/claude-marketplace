@@ -46,7 +46,13 @@ export class DevPinUpdate {
     if (this.#git(["rev-parse", "HEAD"]) !== commit)
       throw new Error("Check out the prepared dev pin before verification.");
     Channel.named("dev").verify(this.repository, destination);
-    this.#git(["diff", "--exit-code", commit, "--"]);
+    const changed = this.#git(["diff", "--name-only", "-z", commit, "--"])
+      .split("\0")
+      .filter(Boolean);
+    if (changed.length)
+      throw new Error(
+        `Verification changed tracked files: ${JSON.stringify(changed)}. Discard this candidate and investigate the verifier. ${ChannelPublication.retryInstructions}`,
+      );
   }
 
   publish(commit) {

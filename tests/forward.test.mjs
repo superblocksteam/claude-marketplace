@@ -18,9 +18,13 @@ class ChannelRepository {
     this.origin = join(this.directory, "origin.git");
     this.checkout = join(this.directory, "checkout");
     this.env = { ...process.env };
+    t.after(() => {
+      process.env = this.env;
+    });
+    Object.assign(process.env, { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" });
     t.after(() => rmSync(this.directory, { recursive: true, force: true }));
-    this.git("init", "--quiet", "--bare", this.origin);
-    this.git("init", "--quiet", "--initial-branch=main", this.checkout);
+    this.git("init", "--quiet", "--template=", "--bare", this.origin);
+    this.git("init", "--quiet", "--template=", "--initial-branch=main", this.checkout);
     this.ready = true;
     this.git("remote", "add", "origin", this.origin);
     this.write("package.json", { private: true });
@@ -109,9 +113,6 @@ writeFileSync("package-lock.json", JSON.stringify(lock, null, 2) + "\\n");
       PATH: `${bin}:${process.env.PATH}`,
       FORWARD_NPM_CALLS: this.npmCalls,
       GH_TOKEN: "fixture-write-token",
-    });
-    t.after(() => {
-      process.env = this.env;
     });
   }
 
@@ -271,8 +272,29 @@ test("migration refuses to discard files unique to the destination snapshot", (t
   repo.git("switch", "--quiet", "--detach", "origin/next");
   repo.write(`${plugin}/local-skill.md`, "unique staging work\n");
   const previous = repo.commit("next", "staging addition");
-  assert.throws(() => repo.forward("next").prepare(repo.main), /unexpected|unique|discard/i);
+  assert.throws(
+    () => repo.forward("next").prepare(repo.main),
+    /unexpected files.*plugins\/superblocks-plugin\/local-skill.md.*manual migration PR on next/i,
+  );
   assert.equal(repo.git("rev-parse", "origin/next"), previous);
+});
+
+test("forward preparation explains missing and detached source commits without publishing", (t) => {
+  const repo = new ChannelRepository(t);
+  const previous = repo.git("ls-remote", "origin", "refs/heads/next");
+  const missing = "f".repeat(40);
+  assert.throws(
+    () => repo.forward("next").prepare(missing),
+    new RegExp(`Commit ${missing} is unavailable.*Fetch`),
+  );
+  repo.write("README.md", "source later removed from main\n");
+  const source = repo.commit("main", "temporary parent update");
+  repo.git("--git-dir", repo.origin, "update-ref", "refs/heads/main", repo.main);
+  assert.throws(
+    () => repo.forward("next").prepare(source),
+    new RegExp(`Source commit ${source} is no longer on main.*${repo.main}.*Re-run all jobs`),
+  );
+  assert.equal(repo.git("ls-remote", "origin", "refs/heads/next"), previous);
 });
 
 test("migration rejects independent edits to a shared legacy path", (t) => {

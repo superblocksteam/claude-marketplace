@@ -16,7 +16,10 @@ export class ChannelBranch {
     if (!this.channel.parent) throw new Error("beta is published by merging to main.");
     this.#sha(sourceSha);
     const sourceTip = this.#tip(this.channel.parent);
-    this.#git(["merge-base", "--is-ancestor", sourceSha, sourceTip]);
+    if (!this.#ancestor(sourceSha, sourceTip))
+      throw new Error(
+        `Source commit ${sourceSha} is no longer on ${this.channel.parent} (current tip ${sourceTip}). ${ChannelPublication.retryInstructions}`,
+      );
     const previous = this.#tip(this.channel.branch);
     if (this.#ancestor(sourceSha, previous)) return { changed: false, commit: previous };
     const directory = mkdtempSync(join(tmpdir(), "superblocks-forward-"));
@@ -97,31 +100,29 @@ export class ChannelBranch {
     const sourceFiles = new Set(
       this.#git(["ls-tree", "-r", "--name-only", sourceSha], checkout).split("\n"),
     );
-    if (
-      files.some(
-        (file) =>
-          !sourceFiles.has(file) ||
-          (file !== "README.md" &&
-            !file.startsWith("plugins/") &&
-            !file.startsWith(".claude-plugin/")),
-      )
-    ) {
-      throw new Error("Legacy channel contains unexpected files; migrate it manually.");
-    }
+    const unexpected = files.filter(
+      (file) =>
+        !sourceFiles.has(file) ||
+        (file !== "README.md" &&
+          !file.startsWith("plugins/") &&
+          !file.startsWith(".claude-plugin/")),
+    );
+    if (unexpected.length)
+      throw this.#migrationError(
+        `Legacy channel contains unexpected files: ${JSON.stringify(unexpected)}`,
+      );
     const stamp = owned.get(MANIFEST).version.match(/\.g([0-9a-f]{12})\.cli-/)?.[1];
-    if (!stamp) throw new Error("Legacy channel has no source stamp; migrate it manually.");
+    if (!stamp) throw this.#migrationError("Legacy channel has no source stamp");
     const baseline = this.#git(["rev-parse", "--verify", `${stamp}^{commit}`], checkout);
     if (!this.#ancestor(baseline, sourceSha))
-      throw new Error(
-        "Legacy source is not an ancestor of the incoming source; migrate it manually.",
-      );
+      throw this.#migrationError("Legacy source is not an ancestor of the incoming source");
     const expectedFiles = this.#git(
       ["ls-tree", "-r", "--name-only", baseline, "--", "README.md", ".claude-plugin", "plugins"],
       checkout,
     ).split("\n");
     for (const file of expectedFiles) {
       if (!files.includes(file))
-        throw new Error(`Legacy channel independently deleted ${file}; migrate it manually.`);
+        throw this.#migrationError(`Legacy channel independently deleted ${file}`);
     }
     for (const file of files) {
       let sourcePath = file;
@@ -129,9 +130,7 @@ export class ChannelBranch {
         sourcePath = `channels/${this.channel.name}/${file.slice(PLUGIN.length + 1)}`;
       const original = this.#run(["show", `${baseline}:${sourcePath}`], checkout);
       if (original.status !== 0)
-        throw new Error(
-          `Legacy channel contains an independent file: ${file}. Migrate it manually.`,
-        );
+        throw this.#migrationError(`Legacy channel contains an independent file: ${file}`);
       let matches;
       if (owned.has(file)) {
         const expected = JSON.parse(original.stdout);
@@ -144,9 +143,15 @@ export class ChannelBranch {
       }
       const mode = (ref, path) => this.#git(["ls-tree", ref, "--", path], checkout).split(" ")[0];
       if (!matches || mode("HEAD", file) !== mode(baseline, sourcePath))
-        throw new Error(`Legacy channel independently changed ${file}; migrate it manually.`);
+        throw this.#migrationError(`Legacy channel independently changed ${file}`);
     }
     this.#git(["read-tree", "--reset", "-u", sourceSha], checkout);
+  }
+
+  #migrationError(reason) {
+    return new Error(
+      `${reason}. Create a manual migration PR on ${this.channel.branch}: combine the full ${this.channel.parent} repository tree with this channel's CLI pin and reviewed local changes, regenerate channel branding, and run channel verification before retrying.`,
+    );
   }
 
   #resolve(checkout, file, owned, directory) {
@@ -187,7 +192,10 @@ export class ChannelBranch {
 
   #sha(value) {
     if (!/^[0-9a-f]{40}$/.test(value)) throw new Error("Expected a full Git commit SHA.");
-    this.#git(["cat-file", "-e", `${value}^{commit}`]);
+    if (this.#run(["cat-file", "-e", `${value}^{commit}`]).status !== 0)
+      throw new Error(
+        `Commit ${value} is unavailable. Fetch the commit and retry with its full SHA.`,
+      );
   }
 
   #ancestor(ancestor, descendant) {
