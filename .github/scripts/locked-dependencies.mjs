@@ -40,19 +40,43 @@ export class LockedDependencies {
       )
         continue;
       if (!previous)
-        throw new Error(
-          `Unreviewed dependency addition: ${path}. Update the lockfile in a reviewed PR.`,
+        throw this.#rejection(
+          path,
+          `expected an exact reviewed entry, found version ${entry.version}`,
+          "addition",
         );
       if (isDeepStrictEqual(previous, entry)) continue;
       const intended = name === "@superblocksteam/cli" ? cliVersion : this.overrides.get(name);
-      if (
-        entry.version !== intended ||
-        entry.version === previous.version ||
-        (previous.resolved && new URL(previous.resolved).origin !== new URL(entry.resolved).origin)
-      )
-        throw new Error(
-          `Unreviewed dependency change: ${path}. Update the lockfile in a reviewed PR.`,
+      if (previous.resolved) {
+        const expected = new URL(previous.resolved).origin;
+        const found = entry.resolved ? new URL(entry.resolved).origin : "<missing>";
+        if (expected !== found)
+          throw this.#rejection(path, `registry expected ${expected}, found ${found}`);
+      }
+      if (entry.version === previous.version) {
+        const fields = [...new Set([...Object.keys(previous), ...Object.keys(entry)])].filter(
+          (key) => !isDeepStrictEqual(previous[key], entry[key]),
+        );
+        const integrity =
+          previous.integrity === entry.integrity
+            ? ""
+            : `; integrity expected ${previous.integrity ?? "<absent>"}, found ${entry.integrity ?? "<absent>"}`;
+        throw this.#rejection(
+          path,
+          `same-version metadata changed at ${entry.version}: ${fields.join(", ")}${integrity}`,
+        );
+      }
+      if (entry.version !== intended)
+        throw this.#rejection(
+          path,
+          `version expected ${intended ?? previous.version} (previous ${previous.version}), found ${entry.version}`,
         );
     }
+  }
+
+  #rejection(path, reason, kind = "change") {
+    return new Error(
+      `Unreviewed dependency ${kind}: ${path}; ${reason}. Update the lockfile in a reviewed PR.`,
+    );
   }
 }

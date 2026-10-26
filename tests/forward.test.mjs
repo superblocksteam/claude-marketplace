@@ -361,7 +361,7 @@ test("add/add metadata conflicts identify the file without a merge-base blob", (
   repo.git("switch", "--quiet", "--detach", withoutManifest);
   repo.brand("next");
   repo.pin("2.0.0-next.1");
-  repo.commit("next", "add next metadata");
+  const previous = repo.commit("next", "add next metadata");
   repo.git("switch", "--quiet", "main");
   repo.brand("beta");
   const entry = JSON.parse(readFileSync(join(repo.checkout, manifest), "utf8"));
@@ -372,6 +372,7 @@ test("add/add metadata conflicts identify the file without a merge-base blob", (
     () => repo.forward("next").prepare(source),
     /Shared metadata conflict: plugins\/superblocks-plugin\/\.claude-plugin\/plugin.json/,
   );
+  assert.equal(repo.git("ls-remote", "origin", "refs/heads/next").split(/\s/)[0], previous);
 });
 
 test("conflicting shared code, failed npm resolution, and concurrent updates never overwrite the destination", (t) => {

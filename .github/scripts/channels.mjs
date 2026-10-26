@@ -120,12 +120,16 @@ export class Channel {
       name !== installedName &&
       (installedName.startsWith("@superblocksteam/") || !this.#hasAlias(lock, path, name))
     )
-      throw new Error(`Unexpected package alias for ${path}.`);
+      throw new Error(
+        `Unexpected package alias for ${path}: expected ${installedName}, found ${name}; no permitted matching alias declarations.`,
+      );
     if (!entry.resolved) return;
     const registry = name.startsWith("@superblocksteam/") ? this.registry : PUBLIC_NPM;
     const url = new URL(entry.resolved);
     if (url.origin !== new URL(registry).origin || url.username || url.password)
-      throw new Error(`Unexpected package registry for ${path}.`);
+      throw new Error(
+        `Unexpected package registry for ${path}: expected ${new URL(registry).origin}, found ${url.origin}; URL userinfo ${url.username || url.password ? "present (forbidden)" : "absent"}.`,
+      );
     const pathname = decodeURIComponent(url.pathname);
     const publicPath = `/${name}/-/${name.split("/").at(-1)}-${entry.version}.tgz`;
     const privatePrefix = `/download/${name}/${entry.version}/`;
@@ -135,7 +139,9 @@ export class Channel {
         : pathname.startsWith(privatePrefix) &&
           /^[0-9a-f]{40}$/.test(pathname.slice(privatePrefix.length));
     if (!matches || url.search || url.hash)
-      throw new Error(`Unexpected package tarball for ${path}.`);
+      throw new Error(
+        `Unexpected package tarball for ${path}: expected ${registry === PUBLIC_NPM ? publicPath : `${privatePrefix}<40 lowercase hex characters>`}; found path match ${matches} (actual path redacted), query ${url.search ? "present (forbidden)" : "absent"}, fragment ${url.hash ? "present (forbidden)" : "absent"}.`,
+      );
   }
 
   #hasAlias(lock, path, name) {

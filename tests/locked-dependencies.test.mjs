@@ -99,22 +99,50 @@ test("scoped override selectors cannot authorize a different package or changed 
   assert.throws(() => policy.assertUpdate(moved, "1.0.0"), /Unreviewed dependency addition/);
 });
 
-test("lock updates reject unrelated versions, new packages, registry changes, and same-version integrity changes", () => {
-  for (const [description, path, patch] of [
-    ["unrelated version", "node_modules/unrelated", { version: "1.0.1" }],
-    ["new package", "node_modules/new", { version: "1.0.0" }],
+test("lock update rejections distinguish versions, additions, registry changes, and same-version metadata", () => {
+  for (const [description, path, patch, diagnostic] of [
+    [
+      "unrelated version",
+      "node_modules/unrelated",
+      { version: "1.0.1" },
+      /version expected 1\.0\.0.*found 1\.0\.1/,
+    ],
+    [
+      "new package",
+      "node_modules/new",
+      { version: "1.0.0" },
+      /expected an exact reviewed entry.*found version 1\.0\.0/,
+    ],
     [
       "registry change",
       "node_modules/@superblocksteam/cli",
       { version: "1.0.1", resolved: "https://registry.npmjs.org/cli" },
+      /registry expected https:\/\/npm\.pkg\.github\.com.*found https:\/\/registry\.npmjs\.org/,
     ],
-    ["integrity change", "node_modules/unrelated", { integrity: "replaced" }],
+    [
+      "missing registry URL",
+      "node_modules/@superblocksteam/cli",
+      { version: "1.0.1", resolved: undefined },
+      /registry expected https:\/\/npm\.pkg\.github\.com.*found <missing>/,
+    ],
+    [
+      "integrity change",
+      "node_modules/unrelated",
+      { integrity: "replaced" },
+      /same-version metadata.*integrity.*expected original.*found replaced/,
+    ],
+    [
+      "metadata change",
+      "node_modules/unrelated",
+      { dependencies: { added: "1.0.0" } },
+      /same-version metadata.*dependencies/,
+    ],
   ]) {
     const candidate = structuredClone(original);
     candidate.packages[path] = { ...candidate.packages[path], ...patch };
     assert.throws(
       () => new LockedDependencies(original).assertUpdate(candidate, "1.0.1"),
-      /Unreviewed dependency/,
+      diagnostic,
       description,
     );
   }

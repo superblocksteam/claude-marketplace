@@ -305,3 +305,46 @@ test("alias authorization checks every dependency section of a parent", (t) => {
     delete parent[section];
   }
 });
+
+test("source rejection diagnostics identify mismatches without exposing URL secrets", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-source-diagnostics-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  new ChannelMarketplace(current, root).write(directory);
+  const path = join(directory, PLUGIN, "package-lock.json");
+  const lock = readJson(path);
+  const entry = lock.packages["node_modules/qs"];
+  const original = { ...entry };
+  for (const [patch, expected] of [
+    [{ name: "unrelated" }, /alias.*expected qs.*found unrelated/],
+    [
+      {
+        resolved:
+          "https://PRIVATE_USER:PRIVATE_PASSWORD@wrong.invalid/package?PRIVATE_QUERY#PRIVATE_FRAGMENT",
+      },
+      /registry.*expected https:\/\/registry\.npmjs\.org.*found https:\/\/wrong\.invalid.*userinfo/,
+    ],
+    [
+      { resolved: "https://registry.npmjs.org/%50RIVATE_PATH?PRIVATE_QUERY#PRIVATE_FRAGMENT" },
+      /tarball.*expected \/qs\/-\/qs-.*found path match false.*query.*fragment/,
+    ],
+    [
+      { resolved: "https://registry.npmjs.org/wrong-path?PRIVATE_QUERY#PRIVATE_FRAGMENT" },
+      /tarball.*expected \/qs\/-\/qs-.*found path match false.*query.*fragment/,
+    ],
+    [
+      { resolved: `${original.resolved}?PRIVATE_QUERY` },
+      /tarball.*found path match true.*query present \(forbidden\).*fragment absent/,
+    ],
+  ]) {
+    lock.packages["node_modules/qs"] = { ...original, ...patch };
+    writeJson(path, lock);
+    assert.throws(
+      () => current.cliVersion(directory),
+      (error) => {
+        assert.doesNotMatch(error.message, /PRIVATE_|%50RIVATE_/);
+        assert.match(error.message, expected);
+        return true;
+      },
+    );
+  }
+});

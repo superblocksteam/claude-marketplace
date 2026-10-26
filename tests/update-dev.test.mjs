@@ -363,6 +363,7 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
   for (const rawVersion of ["", "not JSON"]) {
     state({ rawVersion });
     assert.throws(() => publish(), /invalid JSON/);
+    assert.equal(tip(), published);
   }
   for (const replacement of ["changedDigest", "changedTarball"]) {
     state({ version: "1.0.2", [replacement]: true });
