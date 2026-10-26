@@ -274,6 +274,9 @@ test("internal package names cannot alias public packages even through optional 
     "npm:unrelated@1.0.0";
   writeJson(path, lock);
   assert.throws(() => current.cliVersion(directory), /alias.*@superblocksteam\/sdk/i);
+  delete lock.packages["node_modules/@superblocksteam/sdk"].resolved;
+  writeJson(path, lock);
+  assert.throws(() => current.cliVersion(directory), /alias.*@superblocksteam\/sdk/i);
 });
 
 test("alias authorization checks every dependency section of a parent", (t) => {

@@ -113,7 +113,7 @@ export class Channel {
   }
 
   #assertPackageSource(path, entry, lock) {
-    if (!entry.resolved) return;
+    if (!path) return;
     const installedName = path.split("node_modules/").at(-1);
     const name = entry.name ?? installedName;
     if (
@@ -121,6 +121,7 @@ export class Channel {
       (installedName.startsWith("@superblocksteam/") || !this.#hasAlias(lock, path, name))
     )
       throw new Error(`Unexpected package alias for ${path}.`);
+    if (!entry.resolved) return;
     const registry = name.startsWith("@superblocksteam/") ? this.registry : PUBLIC_NPM;
     const url = new URL(entry.resolved);
     if (url.origin !== new URL(registry).origin || url.username || url.password)
