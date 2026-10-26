@@ -96,30 +96,28 @@ export class ChannelBranch {
   }
 
   #migrate(checkout, sourceSha, owned) {
-    const files = this.#git(["ls-tree", "-r", "--name-only", "HEAD"], checkout).split("\n");
-    const sourceFiles = new Set(
-      this.#git(["ls-tree", "-r", "--name-only", sourceSha], checkout).split("\n"),
-    );
-    const unexpected = files.filter(
-      (file) =>
-        !sourceFiles.has(file) ||
-        (file !== "README.md" &&
-          !file.startsWith("plugins/") &&
-          !file.startsWith(".claude-plugin/")),
-    );
-    if (unexpected.length)
-      throw this.#migrationError(
-        `Legacy channel contains unexpected files: ${JSON.stringify(unexpected)}`,
-      );
+    const files = this.#git(["ls-tree", "-r", "--name-only", "HEAD"], checkout)
+      .split("\n")
+      .filter(Boolean);
     const stamp = owned.get(MANIFEST).version.match(/\.g([0-9a-f]{12})\.cli-/)?.[1];
     if (!stamp) throw this.#migrationError("Legacy channel has no source stamp");
-    const baseline = this.#git(["rev-parse", "--verify", `${stamp}^{commit}`], checkout);
+    const resolved = this.#run(["rev-parse", "--verify", `${stamp}^{commit}`], checkout);
+    if (resolved.status !== 0)
+      throw this.#migrationError(`Legacy source commit ${stamp} is unavailable or ambiguous`);
+    const baseline = resolved.stdout.trim();
     if (!this.#ancestor(baseline, sourceSha))
       throw this.#migrationError("Legacy source is not an ancestor of the incoming source");
     const expectedFiles = this.#git(
       ["ls-tree", "-r", "--name-only", baseline, "--", "README.md", ".claude-plugin", "plugins"],
       checkout,
-    ).split("\n");
+    )
+      .split("\n")
+      .filter(Boolean);
+    const unexpected = files.filter((file) => !expectedFiles.includes(file));
+    if (unexpected.length)
+      throw this.#migrationError(
+        `Legacy channel contains unexpected files: ${JSON.stringify(unexpected)}`,
+      );
     for (const file of expectedFiles) {
       if (!files.includes(file))
         throw this.#migrationError(`Legacy channel independently deleted ${file}`);

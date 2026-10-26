@@ -30,6 +30,7 @@ class ChannelRepository {
     this.write("package.json", { private: true });
     this.write(".github/workflows/channels.yml", "shared workflow\n");
     this.write("README.md", "shared documentation\n");
+    this.write(`${plugin}/old-skill.md`, "shared plugin documentation\n");
     this.write("shared.txt", "one\ntwo\nthree\n");
     this.write(`${plugin}/package.json`, {
       private: true,
@@ -59,6 +60,7 @@ class ChannelRepository {
       if (legacy) {
         this.git("switch", "--quiet", "--orphan", `legacy-${channel}`);
         this.write("README.md", "shared documentation\n");
+        this.write(`${plugin}/old-skill.md`, "shared plugin documentation\n");
         this.write(`${plugin}/package.json`, {
           private: true,
           dependencies: { "@superblocksteam/cli": version },
@@ -277,6 +279,64 @@ test("migration refuses to discard files unique to the destination snapshot", (t
     /unexpected files.*plugins\/superblocks-plugin\/local-skill.md.*manual migration PR on next/i,
   );
   assert.equal(repo.git("rev-parse", "origin/next"), previous);
+});
+
+test("migration applies upstream deletions and renames of unchanged legacy files", async (t) => {
+  for (const operation of ["delete", "rename"]) {
+    await t.test(operation, (t) => {
+      const repo = new ChannelRepository(t, true);
+      const previous = repo.git("ls-remote", "origin", "refs/heads/next");
+      if (operation === "delete") repo.git("rm", `${plugin}/old-skill.md`);
+      else repo.git("mv", `${plugin}/old-skill.md`, `${plugin}/new-skill.md`);
+      const source = repo.commit("main", `${operation} upstream skill`);
+      const candidate = repo.forward("next").prepare(source);
+      const paths = repo.git("ls-tree", "-r", "--name-only", candidate.commit).split("\n");
+      assert.equal(paths.includes(`${plugin}/old-skill.md`), false);
+      assert.equal(paths.includes(`${plugin}/new-skill.md`), operation === "rename");
+      if (operation === "rename")
+        assert.equal(
+          repo.git("show", `${candidate.commit}:${plugin}/new-skill.md`),
+          "shared plugin documentation",
+        );
+      assert.equal(
+        repo.json(candidate.commit, `${plugin}/package.json`).dependencies["@superblocksteam/cli"],
+        "2.0.0-next.1",
+      );
+      assert.equal(repo.git("ls-remote", "origin", "refs/heads/next"), previous);
+    });
+  }
+});
+
+test("migration rejects local edits even when upstream deleted the file", (t) => {
+  const repo = new ChannelRepository(t, true);
+  repo.git("rm", `${plugin}/old-skill.md`);
+  const source = repo.commit("main", "delete upstream skill");
+  repo.git("switch", "--quiet", "--detach", "origin/next");
+  repo.write(`${plugin}/old-skill.md`, "independent staging work\n");
+  repo.commit("next", "edit legacy skill");
+  const previous = repo.git("ls-remote", "origin", "refs/heads/next");
+  assert.throws(
+    () => repo.forward("next").prepare(source),
+    /Legacy channel independently changed.*old-skill.md.*manual migration PR on next/,
+  );
+  assert.equal(repo.git("ls-remote", "origin", "refs/heads/next"), previous);
+  assert.equal(existsSync(repo.npmCalls), false);
+});
+
+test("migration explains an unavailable provenance commit before installing or publishing", (t) => {
+  const repo = new ChannelRepository(t, true);
+  repo.git("switch", "--quiet", "--detach", "origin/next");
+  const entry = repo.json("HEAD", manifest);
+  entry.version = entry.version.replace(/\.g[0-9a-f]{12}\.cli-/, ".gffffffffffff.cli-");
+  repo.write(manifest, entry);
+  repo.commit("next", "reference unavailable legacy provenance");
+  const previous = repo.git("ls-remote", "origin", "refs/heads/next");
+  assert.throws(
+    () => repo.forward("next").prepare(repo.main),
+    /Legacy source commit ffffffffffff is unavailable.*manual migration PR on next/,
+  );
+  assert.equal(repo.git("ls-remote", "origin", "refs/heads/next"), previous);
+  assert.equal(existsSync(repo.npmCalls), false);
 });
 
 test("forward preparation explains missing and detached source commits without publishing", (t) => {
