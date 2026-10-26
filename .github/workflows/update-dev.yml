@@ -9,8 +9,6 @@ concurrency:
 jobs:
   credentials:
     uses: ./.github/workflows/publication-ready.yml
-    secrets:
-      channel-publish-token: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
     if: github.ref == 'refs/heads/main'
   prepare:
     if: github.ref == 'refs/heads/main'
@@ -105,3 +103,4 @@ jobs:
           GH_TOKEN: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
           CANDIDATE: ${{ needs.prepare.outputs.commit }}
         run: node .github/scripts/dev-pin.mjs publish "$CANDIDATE"
+    environment: channel-publication

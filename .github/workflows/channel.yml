@@ -20,16 +20,12 @@ name: Channel
     secrets:
       github-packages-token:
         required: false
-      channel-publish-token:
-        required: false
     outputs:
       commit:
         value: ${{ jobs.build.outputs.commit }}
 jobs:
   credentials:
     uses: ./.github/workflows/publication-ready.yml
-    secrets:
-      channel-publish-token: ${{ secrets.channel-publish-token }}
     if: inputs.forward-from != ''
   build:
     runs-on: ${{ inputs.runner }}
@@ -115,12 +111,14 @@ jobs:
         run: git bundle unbundle "$RUNNER_TEMP/verified-channel/channel.bundle"
       - name: Publish the verified merge
         env:
-          GH_TOKEN: ${{ secrets.channel-publish-token }}
+          GH_TOKEN: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
           CANDIDATE: ${{ needs.build.outputs.commit }}
           CHANNEL: ${{ inputs.channel }}
         run:
-          'test -n "$GH_TOKEN" || { echo "Configure CHANNEL_PUBLISH_TOKEN with contents and workflows write permissions." >&2; exit 1; }
+          'test -n "$GH_TOKEN" || { echo "Configure CHANNEL_PUBLISH_TOKEN only in the protected channel-publication
+          environment with contents and workflows write permissions." >&2; exit 1; }
 
           node .github/scripts/channel.mjs publish "$CHANNEL" "$CANDIDATE"'
+    environment: channel-publication
 permissions:
   contents: read

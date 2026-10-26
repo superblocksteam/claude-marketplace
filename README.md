@@ -79,14 +79,37 @@ Only then does a separate job push that merge. Its push starts the same process 
 A successful push directly to `next` propagates to `master` the same way. Changes
 on `master` stay there until explicitly promoted in the other direction.
 
-Configure `CHANNEL_PUBLISH_TOKEN` with repository contents and workflows write
-permissions (a fine-grained PAT or GitHub App installation token). The default
-`GITHUB_TOKEN` cannot publish workflow-file changes. An isolated preflight rejects
-missing credentials and failed authenticated repository requests before preparation
-and verification begin. This read-only check does not prove contents or workflows
+Before enabling publication, create the `channel-publication` GitHub Environment:
+
+1. Select **Selected branches and tags** and add exact **Branch** rules for `main`,
+   `next`, and `master`; allow no tags or other branches. Protect these branches
+   against unreviewed workflow changes.
+2. Configure required reviewers, enable **Prevent self-review**, and disable
+   administrator bypass of the environment's protection rules.
+3. Store `CHANNEL_PUBLISH_TOKEN` **only as an environment secret**, with repository
+   contents and workflows write permissions (a fine-grained PAT or GitHub App
+   installation token). Remove any repository or organization secret of the same
+   name that is available to this repository.
+
+A repository secret would also be available to workflows added on unprotected
+branches. Declaring an environment in YAML does not configure its protection rules;
+complete this setup before adding the credential. See GitHub's
+[environment setup instructions](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
+
+The default
+`GITHUB_TOKEN` cannot publish workflow-file changes. The preflight waits for
+environment approval first. After approval, it rejects missing credentials and failed
+authenticated repository requests; preparation and verification cannot start until
+that check succeeds. This read-only check does not prove contents or workflows
 write access; configure both permissions on the token for this repository.
-Only that check and the final publication job receive it;
-validation runs with read-only permissions.
+Only that check and the final publication job use the environment and receive its
+credential; preparation and validation run with read-only permissions. Both privileged
+jobs wait for environment approval, so channel propagation and dev promotion require
+reviewer approval even when upstream automation starts the workflow. Review the
+workflow ref and candidate before approving each privileged job. Candidate bundles
+expire after one day. Approval after expiry fails at artifact download before any
+publish command runs. **Re-run failed jobs** cannot restore an expired bundle; choose
+**Re-run all jobs** to prepare and verify a fresh candidate, then approve again.
 This token's pushes trigger the next channel's workflow. Shared-file conflicts stop propagation for manual
 resolution on the destination branch. A concurrent destination update rejects
 publication. Choose **Re-run all jobs**, or start **Channels** from the parent branch,
@@ -171,7 +194,8 @@ workflow also requires the exact version's registry tarball URL and integrity to
 match the prepared lockfile. A mismatch stops publication for investigation.
 
 Configure `GH_PACKAGES_READ_TOKEN` for private package access and
-`CHANNEL_PUBLISH_TOKEN` for publication. Pin resolution uses isolated package
+`CHANNEL_PUBLISH_TOKEN` only in the protected `channel-publication` environment
+configured above. Pin resolution uses isolated package
 manifests, disabled proxying, verified TLS, and no GitHub write token in the npm
 environment. Superblocks' master publish automation can keep invoking
 `npm run update:dev` with workflow-dispatch permission; publication status now lives
