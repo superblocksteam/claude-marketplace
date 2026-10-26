@@ -91,6 +91,11 @@ test("dev prepares an immutable pin, verifies it separately, and publishes witho
         resolved: `https://npm.pkg.github.com/download/@superblocksteam/cli/1.0.0/${"a".repeat(40)}`,
         integrity: "sha512-fixture-1.0.0",
       },
+      "node_modules/@superblocksteam/sdk": {
+        version: "1.0.0",
+        resolved: `https://npm.pkg.github.com/download/@superblocksteam/sdk/1.0.0/${"b".repeat(40)}`,
+        integrity: "sha512-sdk-1.0.0",
+      },
       "node_modules/unrelated": { version: "1.0.0" },
     },
   });
@@ -168,14 +173,27 @@ else if (args[0] === "install") {
   lock.packages["node_modules/@superblocksteam/cli"].resolved = artifact.tarball;
   lock.packages["node_modules/@superblocksteam/cli"].integrity = artifact.integrity;
   if (state.requiredDependency) {
-    lock.packages["node_modules/@superblocksteam/cli"].dependencies = {unrelated:"^1.2.0"};
+    lock.packages["node_modules/@superblocksteam/cli"].dependencies = {"@superblocksteam/sdk": state.version};
+    lock.packages["node_modules/@superblocksteam/sdk"] = {
+      version: state.version,
+      resolved: "https://npm.pkg.github.com/download/@superblocksteam/sdk/" + state.version + "/" + "b".repeat(40),
+      integrity: "sha512-sdk-" + state.version,
+      dependencies: { unrelated: "^1.2.0", "new-transitive": "2.0.0" }
+    };
     lock.packages["node_modules/unrelated"].version = "1.2.0";
+    lock.packages["node_modules/new-transitive"] = {
+      version: "2.0.0", resolved: "https://registry.npmjs.org/new-transitive/-/new-transitive-2.0.0.tgz", integrity: "sha512-new-transitive"
+    };
+    if (state.invalidDependencySource) lock.packages["node_modules/@superblocksteam/sdk"].resolved = "https://registry.npmjs.org/@superblocksteam/sdk/-/sdk-" + state.version + ".tgz";
   }
   if (!state.corruptPin) lock.packages[""].dependencies["@superblocksteam/cli"] = state.version;
   writeFileSync("package.json", JSON.stringify(pkg));
   writeFileSync("package-lock.json", JSON.stringify(lock));
 } else if (args[0] === "ci" && args.includes("--dry-run") && state.dryRunAuthFailure) {
   console.error("npm error code E401: fixture registry authentication failed");
+  process.exit(1);
+} else if (args[0] === "ci" && args.includes("--dry-run") && state.invalidLock) {
+  console.error("npm error code EUSAGE: fixture dependency lock is not installable");
   process.exit(1);
 } else if (args[0] === "ci" && args.includes("--dry-run") && state.requiredDependency) {
   const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
@@ -295,7 +313,20 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
     }),
   );
   state({ version: "1.0.2", requiredDependency: true });
-  assert.throws(() => update.prepare(), /Unreviewed dependency change/);
+  const upgraded = update.prepare();
+  const upgradedLock = JSON.parse(git("show", `${upgraded.commit}:${plugin}/package-lock.json`));
+  assert.equal(upgradedLock.packages["node_modules/@superblocksteam/sdk"].version, "1.0.2");
+  assert.equal(upgradedLock.packages["node_modules/unrelated"].version, "1.2.0");
+  assert.equal(upgradedLock.packages["node_modules/new-transitive"].version, "2.0.0");
+  assert.equal(tip(), published);
+  state({ version: "1.0.2", requiredDependency: true, invalidDependencySource: true });
+  assert.throws(() => update.prepare(), /Unexpected package registry.*superblocksteam\/sdk/);
+  assert.equal(tip(), published);
+  state({ version: "1.0.2", requiredDependency: true, invalidLock: true });
+  assert.throws(
+    () => update.prepare(),
+    (error) => /EUSAGE/.test(error.stderr) && !/Unreviewed dependency/.test(error.message),
+  );
   assert.equal(tip(), published);
   state({ version: "1.0.2", dryRunAuthFailure: true });
   assert.throws(
@@ -383,4 +414,10 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
   );
   assert.equal(tip(), main);
   console.log("Dev rollback preserved:", tip());
+  state({ version: "1.0.6", requiredDependency: true });
+  assert.match(publish(), /master now pins 1\.0\.6/);
+  const finalLock = JSON.parse(git("show", `${tip()}:${plugin}/package-lock.json`));
+  assert.equal(finalLock.packages["node_modules/@superblocksteam/sdk"].version, "1.0.6");
+  assert.equal(finalLock.packages["node_modules/new-transitive"].version, "2.0.0");
+  console.log("Dev full dependency graph published:", JSON.stringify(finalLock.packages));
 });

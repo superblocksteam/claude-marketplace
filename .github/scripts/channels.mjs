@@ -250,16 +250,18 @@ export class Channel {
       const version = this.cliVersion(directory);
       if (Channel.isExactVersion(spec) && version !== spec)
         throw new Error(`CLI pin does not match the requested version ${spec}.`);
-      const updatedLock = readJson(join(pin, "package-lock.json"));
-      original.constrain(updatedLock, version);
-      original.assertUpdate(updatedLock, version);
-      writeJson(join(pin, "package-lock.json"), updatedLock);
-      this.#assertInstallable(pin, env);
+      if (reviewedLock) {
+        const updatedLock = readJson(join(pin, "package-lock.json"));
+        original.constrain(updatedLock, version);
+        original.assertUpdate(updatedLock, version);
+        writeJson(join(pin, "package-lock.json"), updatedLock);
+      }
+      this.#assertInstallable(pin, env, Boolean(reviewedLock));
       for (const file of PIN_FILES) cpSync(join(pin, file), join(this.pinDirectory(root), file));
     });
   }
 
-  #assertInstallable(directory, env) {
+  #assertInstallable(directory, env, constrained) {
     try {
       execFileSync("npm", ["ci", "--dry-run", ...this.npmArgs()], {
         cwd: directory,
@@ -268,7 +270,7 @@ export class Channel {
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (error) {
-      if (/\bEUSAGE\b/.test(error.stderr ?? ""))
+      if (constrained && /\bEUSAGE\b/.test(error.stderr ?? ""))
         throw new Error(
           "Unreviewed dependency change required by this CLI pin. Update the lockfile in a reviewed PR.",
           { cause: error },

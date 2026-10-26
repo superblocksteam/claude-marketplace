@@ -106,18 +106,18 @@ repository settings.
 Security overrides are shared package settings, so fixes to them merge forward
 while CLI versions stay on their own branches. npm does not inherit the CLI
 monorepo's pnpm overrides. A follow-up will remove them once published
-dependencies contain the fixes. Automatic updates preserve unrelated locked
-versions and reject registry or integrity changes. Before saving a constrained
-lockfile, npm validates its dependency ranges with a dry-run install and reports
-required unreviewed changes for a lockfile PR. Forward merges accept new
+dependencies contain the fixes. Forward merges preserve unrelated locked versions
+and reject registry or integrity changes. Before saving a constrained lockfile,
+npm validates its dependency ranges with a dry-run install and reports required
+unreviewed changes for a lockfile PR. Forward merges accept new
 dependencies only when their exact entries already exist in the incoming branch's
-reviewed lockfile; dev pin updates reject additions. Changes to existing versions
-are limited to the exact CLI pin and explicit overrides.
+reviewed lockfile. Their changes to existing versions are limited to explicit
+overrides; the destination CLI version stays unchanged.
 Updating only the lockfile on one branch does not update existing transitive
 versions on other channels. To ship a security fix across channels, add an
 explicit shared override or open a lockfile PR against each affected channel.
-If a CLI or override requires additional dependency changes, prepare and review
-that channel's lockfile in a PR before retrying automation.
+If a forward merge requires additional dependency changes, refresh that channel's
+lockfile with `npm run pin` and review it in a PR before retrying the merge.
 
 ### Pin a newer CLI
 
@@ -129,6 +129,9 @@ npm run pin -- <channel> [tag-or-version]
 
 Without a version, this resolves the channel's npm tag (`beta`, `next`, or
 `master`) to an exact version. The command refuses a different channel's tree.
+CLI pin updates resolve the full dependency graph, including exact-pinned internal
+packages and new or changed transitive dependencies. Registry, tarball identity,
+alias, and installability checks still apply. Review both package files in the PR.
 Open a PR against that same branch. For beta, also bump the plugin version in
 `.claude-plugin/marketplace.json` and the plugin manifest. Next and dev versions
 include a plugin-content hash and CLI version automatically. After direct plugin
@@ -154,7 +157,7 @@ Exit zero means the dispatch was accepted, not that publication succeeded.
 Automation calling this command must observe the requested workflow's final result.
 
 The workflow prepares an immutable commit from the latest `master`, resolving the
-exact CLI version and refreshing the pin, lockfile, and branding without running
+exact CLI version and refreshing its full dependency graph, pin, and branding without running
 package scripts. A separate runner verifies that commit, builds and smoke-tests
 the bundle, and rejects changes to tracked files during verification. A third
 runner publishes the original prepared commit only after verification passes.
