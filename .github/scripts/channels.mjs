@@ -118,7 +118,7 @@ export class Channel {
     const name = entry.name ?? installedName;
     if (
       name !== installedName &&
-      (installedName === "@superblocksteam/cli" || !this.#hasAlias(lock, path, name))
+      (installedName.startsWith("@superblocksteam/") || !this.#hasAlias(lock, path, name))
     )
       throw new Error(`Unexpected package alias for ${path}.`);
     const registry = name.startsWith("@superblocksteam/") ? this.registry : PUBLIC_NPM;
@@ -141,13 +141,12 @@ export class Channel {
     const installedName = path.split("node_modules/").at(-1);
     const references = [];
     for (const [parent, entry] of Object.entries(lock.packages)) {
-      const spec =
-        entry.optionalDependencies?.[installedName] ??
-        entry.dependencies?.[installedName] ??
-        entry.devDependencies?.[installedName];
-      if (spec === undefined || this.#dependencyPath(lock, parent, installedName) !== path)
-        continue;
-      references.push(spec);
+      const specs = [entry.dependencies, entry.optionalDependencies, entry.devDependencies]
+        .map((dependencies) => dependencies?.[installedName])
+        .filter((spec) => spec !== undefined);
+      if (!specs.length || this.#dependencyPath(lock, parent, installedName) !== path) continue;
+      if (new Set(specs).size !== 1) return false;
+      references.push(specs[0]);
     }
     const prefix = `npm:${name}@`;
     return (

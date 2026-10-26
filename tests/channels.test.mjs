@@ -253,3 +253,52 @@ test("an alias declaration only authorizes the dependency path it resolves to", 
   writeJson(path, lock);
   assert.throws(() => current.cliVersion(directory), /alias.*decoy\/node_modules\/renamed/i);
 });
+
+test("internal package names cannot alias public packages even through optional dependencies", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-sdk-identity-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  new ChannelMarketplace(current, root).write(directory);
+  const path = join(directory, PLUGIN, "package-lock.json");
+  const lock = readJson(path);
+  lock.packages["node_modules/@superblocksteam/cli"].optionalDependencies = {
+    "@superblocksteam/sdk": "npm:unrelated@1.0.0",
+  };
+  lock.packages["node_modules/@superblocksteam/sdk"] = {
+    name: "unrelated",
+    version: "1.0.0",
+    resolved: "https://registry.npmjs.org/unrelated/-/unrelated-1.0.0.tgz",
+  };
+  writeJson(path, lock);
+  assert.throws(() => current.cliVersion(directory), /alias.*@superblocksteam\/sdk/i);
+  lock.packages["node_modules/@superblocksteam/cli"].dependencies["@superblocksteam/sdk"] =
+    "npm:unrelated@1.0.0";
+  writeJson(path, lock);
+  assert.throws(() => current.cliVersion(directory), /alias.*@superblocksteam\/sdk/i);
+});
+
+test("alias authorization checks every dependency section of a parent", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-alias-sections-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  new ChannelMarketplace(current, root).write(directory);
+  const path = join(directory, PLUGIN, "package-lock.json");
+  const lock = readJson(path);
+  lock.packages["node_modules/renamed"] = {
+    name: "unrelated",
+    version: "1.0.0",
+    resolved: "https://registry.npmjs.org/unrelated/-/unrelated-1.0.0.tgz",
+  };
+  const parent = (lock.packages["node_modules/consumer"] = { version: "1.0.0" });
+  for (const section of ["optionalDependencies", "devDependencies"]) {
+    parent.dependencies = { renamed: "1.0.0" };
+    parent[section] = { renamed: "npm:unrelated@1.0.0" };
+    writeJson(path, lock);
+    assert.throws(() => current.cliVersion(directory), /alias.*node_modules\/renamed/i);
+    parent.dependencies.renamed = "npm:unrelated@^1.0.0";
+    writeJson(path, lock);
+    assert.throws(() => current.cliVersion(directory), /alias.*node_modules\/renamed/i);
+    parent.dependencies.renamed = parent[section].renamed;
+    writeJson(path, lock);
+    assert.doesNotThrow(() => current.cliVersion(directory));
+    delete parent[section];
+  }
+});
