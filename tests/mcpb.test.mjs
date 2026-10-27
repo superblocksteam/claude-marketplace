@@ -157,6 +157,11 @@ process.on("SIGTERM", () => process.exit(0));
   assert.equal(bundle.compatibility.runtimes.node, ">=24");
   assert.deepEqual(bundle.compatibility.platforms, [process.platform]);
   assert.equal(bundle.display_name, "Superblocks (next)");
+  assert.equal(bundle.icon, "icon.png", "The MCPB must show the plugin icon");
+  assert.deepEqual(
+    readFileSync(join(runtime, bundle.icon)),
+    readFileSync(join(plugin, ".claude-plugin/icon.png")),
+  );
   const home = join(directory, "empty home");
   mkdirSync(home);
   const env = { ...withoutPackageManagers, HOME: home };
@@ -240,4 +245,15 @@ process.on("SIGTERM", () => process.exit(0));
   );
   assert.notEqual(linkedSkill.status, 0);
   assert.match(linkedSkill.stderr, /Cowork archive cannot contain symlinks/);
+
+  rmSync(join(plugin, ".claude-plugin/icon.png"));
+  const missingIcon = spawnSync(
+    process.execPath,
+    [script, plugin, join(directory, "missing-icon"), "next"],
+    {
+      encoding: "utf8",
+    },
+  );
+  assert.notEqual(missingIcon.status, 0);
+  assert.match(missingIcon.stderr, /Add the plugin icon at \.claude-plugin\/icon\.png/);
 });
