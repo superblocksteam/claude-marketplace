@@ -111,6 +111,14 @@ process.on("SIGTERM", () => process.exit(0));
   assert.ok(files.includes("skills/configure/SKILL.md"));
   assert.ok(files.includes("README.md"), "The install archive must include the plugin README");
   assert.ok(files.includes("LICENSE"), "The install archive must include the plugin license");
+  assert.ok(
+    files.includes(".claude-plugin/icon.png"),
+    "The install archive must include the plugin icon",
+  );
+  assert.deepEqual(
+    readFileSync(join(extracted, ".claude-plugin/icon.png")),
+    readFileSync(join(plugin, ".claude-plugin/icon.png")),
+  );
   assert.ok(bundleFiles.includes("LICENSE"), "The MCPB must include the plugin license");
   assert.ok(bundleFiles.includes("README.md"), "The MCPB must include the plugin README");
   assert.equal(

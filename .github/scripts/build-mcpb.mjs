@@ -133,6 +133,7 @@ try {
     join(cowork, ".claude-plugin/plugin.json"),
     `${JSON.stringify({ ...pluginManifest, displayName, version: cli.version, description: manifest.description, mcpServers: "./superblocks.mcpb" }, null, 2)}\n`,
   );
+  cpSync(join(plugin, ".claude-plugin/icon.png"), join(cowork, ".claude-plugin/icon.png"));
   cpSync(join(plugin, "skills"), join(cowork, "skills"), { recursive: true });
   cpSync(join(plugin, "README.md"), join(cowork, "README.md"));
   cpSync(join(plugin, "LICENSE"), join(cowork, "LICENSE"));
