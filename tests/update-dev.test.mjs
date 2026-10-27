@@ -56,6 +56,7 @@ test("dev prepares an immutable pin, verifies it separately, and publishes witho
     process.env = environment;
     rmSync(directory, { recursive: true, force: true });
   });
+  Object.assign(process.env, { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" });
   const origin = join(directory, "origin.git");
   const checkout = join(directory, "checkout");
   const bin = join(directory, "bin");
@@ -69,8 +70,8 @@ test("dev prepares an immutable pin, verifies it separately, and publishes witho
     }).trim();
   mkdirSync(checkout);
   mkdirSync(bin);
-  git("init", "--quiet", "--bare", origin);
-  git("init", "--quiet", "--initial-branch=master");
+  git("init", "--quiet", "--template=", "--bare", origin);
+  git("init", "--quiet", "--template=", "--initial-branch=master");
   git("remote", "add", "origin", origin);
   const write = (path, value) => {
     const destination = join(checkout, path);
@@ -96,7 +97,10 @@ test("dev prepares an immutable pin, verifies it separately, and publishes witho
         resolved: `https://npm.pkg.github.com/download/@superblocksteam/sdk/1.0.0/${"b".repeat(40)}`,
         integrity: "sha512-sdk-1.0.0",
       },
-      "node_modules/unrelated": { version: "1.0.0" },
+      "node_modules/unrelated": {
+        version: "1.0.0",
+        resolved: "https://registry.npmjs.org/unrelated/-/unrelated-1.0.0.tgz",
+      },
     },
   });
   write(`${plugin}/.npmrc`, "https-proxy=https://untrusted.invalid/\nstrict-ssl=false\n");
@@ -181,6 +185,7 @@ else if (args[0] === "install") {
       dependencies: { unrelated: "^1.2.0", "new-transitive": "2.0.0" }
     };
     lock.packages["node_modules/unrelated"].version = "1.2.0";
+    lock.packages["node_modules/unrelated"].resolved = "https://registry.npmjs.org/unrelated/-/unrelated-1.2.0.tgz";
     lock.packages["node_modules/new-transitive"] = {
       version: "2.0.0", resolved: "https://registry.npmjs.org/new-transitive/-/new-transitive-2.0.0.tgz", integrity: "sha512-new-transitive"
     };

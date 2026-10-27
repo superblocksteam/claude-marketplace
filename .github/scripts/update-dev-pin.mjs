@@ -1,10 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 import { ChannelPublication } from "./channel-publication.mjs";
 import { BOT, Channel, MANIFEST, MARKETPLACE, PIN_FILES, PLUGIN } from "./channels.mjs";
+import { GitWorktree } from "./git-worktree.mjs";
 
 export class DevPinUpdate {
   constructor(repository, remote = "origin") {
@@ -15,10 +13,7 @@ export class DevPinUpdate {
     const channel = Channel.named("dev");
     const version = this.#latestVersion(channel);
     const previous = this.#tip();
-    const directory = mkdtempSync(join(tmpdir(), "superblocks-dev-pin-"));
-    const checkout = join(directory, "checkout");
-    this.#git(["worktree", "add", "--quiet", "--detach", checkout, previous]);
-    try {
+    return new GitWorktree(this.repository, "superblocks-dev-pin-").use(previous, (checkout) => {
       channel.assertCurrent(checkout);
       if (channel.cliVersion(checkout) === version)
         return { changed: false, commit: previous, version };
@@ -35,10 +30,7 @@ export class DevPinUpdate {
         `chore(plugin): pin dev CLI ${version}`,
       ]);
       return { changed: true, commit, version };
-    } finally {
-      this.#git(["worktree", "remove", "--force", checkout]);
-      rmSync(directory, { recursive: true, force: true });
-    }
+    });
   }
 
   verify(commit, destination) {

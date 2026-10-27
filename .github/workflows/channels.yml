@@ -13,9 +13,6 @@ name: Channels
   workflow_dispatch: {}
 permissions:
   contents: read
-concurrency:
-  group: channels-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
     uses: ./.github/workflows/channel.yml
@@ -25,6 +22,9 @@ jobs:
         == 'next' && 'next' || 'beta' }}
     secrets:
       github-packages-token: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+    concurrency:
+      group: channels-check-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
   forward-next:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: check
@@ -32,6 +32,9 @@ jobs:
     with:
       channel: next
       forward-from: ${{ github.sha }}
+    concurrency:
+      group: channel-promotion-next
+      cancel-in-progress: false
   forward-dev:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/next'
     needs: check
@@ -41,3 +44,6 @@ jobs:
       forward-from: ${{ github.sha }}
     secrets:
       github-packages-token: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+    concurrency:
+      group: channel-promotion-dev
+      cancel-in-progress: false

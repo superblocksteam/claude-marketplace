@@ -72,6 +72,8 @@ lockfile. Dev installs private GitHub Packages builds and requires package read
 access: `npm login --registry=https://npm.pkg.github.com --auth-type=legacy`.
 
 The **Channels** workflow checks pull requests and pushes to all three branches.
+Verification and each promotion have separate concurrency groups, so pending
+promotion approvals do not block later verification jobs.
 After a successful push to `main`, it prepares a merge into `next`, preserves
 next's CLI pin and branding, applies explicit security overrides, and runs the tests,
 installed dependency checks, packaging, and credentialless MCP startup check.
@@ -154,7 +156,9 @@ Without a version, this resolves the channel's npm tag (`beta`, `next`, or
 `master`) to an exact version. The command refuses a different channel's tree.
 CLI pin updates resolve the full dependency graph, including exact-pinned internal
 packages and new or changed transitive dependencies. Registry, tarball identity,
-alias, and installability checks still apply. Review both package files in the PR.
+alias, and installability checks still apply. Every non-root lock entry must include
+a resolved registry tarball URL; regenerate incomplete locks before using a channel
+command. Review both package files in the PR.
 Open a PR against that same branch. For beta, also bump the plugin version in
 `.claude-plugin/marketplace.json` and the plugin manifest. Next and dev versions
 include a plugin-content hash and CLI version automatically. After direct plugin

@@ -58,6 +58,14 @@ test("private npm failures explain credential recovery without replacing the err
     assert.equal(message.includes("expired-fixture-token"), false);
   }
   Channel.named("dev").withNpm(() => {}, {});
+  const policyFailure = new Error("Unexpected package alias");
+  assert.throws(
+    () =>
+      Channel.named("dev").withNpm(() => {
+        throw policyFailure;
+      }, {}),
+    (error) => error === policyFailure,
+  );
   assert.throws(
     () =>
       Channel.named("beta").withNpm(() => {
@@ -242,6 +250,27 @@ test("pin verification rejects another package's tarball on the expected registr
   assert.throws(() => current.cliVersion(directory), /alias.*node_modules\/qs/i);
 });
 
+test("pin verification rejects missing tarball URLs without waiting for installation", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "superblocks-missing-source-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  new ChannelMarketplace(current, root).write(directory);
+  const file = join(directory, PLUGIN, "package-lock.json");
+  const original = readJson(file);
+  for (const name of ["@superblocksteam/cli", "@superblocksteam/sdk", "qs"]) {
+    const lock = structuredClone(original);
+    const path = `node_modules/${name}`;
+    delete lock.packages[path].resolved;
+    writeJson(file, lock);
+    assert.throws(
+      () => current.cliVersion(directory),
+      (error) => {
+        assert.ok(error.message.includes(`Missing package tarball URL for ${path}`));
+        return true;
+      },
+    );
+  }
+});
+
 test("a decoy alias cannot substitute another package for the pinned CLI", (t) => {
   const directory = mkdtempSync(join(tmpdir(), "superblocks-cli-identity-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -274,6 +303,7 @@ test("an alias declaration only authorizes the dependency path it resolves to", 
   lock.packages["node_modules/decoy"] = {
     version: "1.0.0",
     dependencies: { renamed: "npm:unrelated@1.0.0" },
+    resolved: "https://registry.npmjs.org/decoy/-/decoy-1.0.0.tgz",
   };
   lock.packages["node_modules/decoy/node_modules/renamed"] = alias;
   writeJson(path, lock);
@@ -284,6 +314,7 @@ test("an alias declaration only authorizes the dependency path it resolves to", 
   lock.packages["node_modules/decoy/node_modules/@scope/consumer"] = {
     version: "1.0.0",
     dependencies: { renamed: "1.0.0" },
+    resolved: "https://registry.npmjs.org/@scope/consumer/-/consumer-1.0.0.tgz",
   };
   writeJson(path, lock);
   assert.throws(() => current.cliVersion(directory), /alias.*decoy\/node_modules\/renamed/i);
@@ -325,7 +356,10 @@ test("alias authorization checks every dependency section of a parent", (t) => {
     version: "1.0.0",
     resolved: "https://registry.npmjs.org/unrelated/-/unrelated-1.0.0.tgz",
   };
-  const parent = (lock.packages["node_modules/consumer"] = { version: "1.0.0" });
+  const parent = (lock.packages["node_modules/consumer"] = {
+    version: "1.0.0",
+    resolved: "https://registry.npmjs.org/consumer/-/consumer-1.0.0.tgz",
+  });
   for (const section of ["optionalDependencies", "devDependencies"]) {
     parent.dependencies = { renamed: "1.0.0" };
     parent[section] = { renamed: "npm:unrelated@1.0.0" };

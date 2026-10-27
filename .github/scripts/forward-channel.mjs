@@ -1,11 +1,11 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 import { ChannelPublication } from "./channel-publication.mjs";
 import { BOT, MANIFEST, MARKETPLACE, PLUGIN, readJson, writeJson } from "./channels.mjs";
+import { GitWorktree } from "./git-worktree.mjs";
 
 export class ChannelBranch {
   constructor(channel, repository, remote = "origin") {
@@ -22,64 +22,61 @@ export class ChannelBranch {
       );
     const previous = this.#tip(this.channel.branch);
     if (this.#ancestor(sourceSha, previous)) return { changed: false, commit: previous };
-    const directory = mkdtempSync(join(tmpdir(), "superblocks-forward-"));
-    const checkout = join(directory, "checkout");
-    this.#git(["worktree", "add", "--quiet", "--detach", checkout, previous]);
-    try {
-      this.channel.assertCurrent(checkout);
-      const version = this.channel.cliVersion(checkout);
-      const lock = readFileSync(join(checkout, PLUGIN, "package-lock.json"), "utf8");
-      const owned = new Map([
-        [`${PLUGIN}/package.json`, { cli: version }],
-        [MANIFEST, readJson(join(checkout, MANIFEST))],
-        [MARKETPLACE, readJson(join(checkout, MARKETPLACE))],
-      ]);
-      if (!existsSync(join(checkout, "package.json"))) {
-        this.#migrate(checkout, sourceSha, owned);
-      } else {
-        const merge = this.#run(["merge", "--no-commit", "--no-ff", sourceSha], checkout);
-        if (merge.status !== 0 && merge.status !== 1)
-          throw new Error(`Git merge failed: ${merge.stderr}`);
-        const conflicts = this.#git(["diff", "--name-only", "--diff-filter=U"], checkout)
-          .split("\n")
-          .filter(Boolean);
-        for (const file of conflicts) {
-          if (file === `${PLUGIN}/package-lock.json`) continue;
-          if (!owned.has(file))
-            throw new Error(
-              `Shared file conflict: ${file}. Resolve it on ${this.channel.branch} before retrying.`,
-            );
-          this.#resolve(checkout, file, owned.get(file), directory);
+    return new GitWorktree(this.repository, "superblocks-forward-").use(
+      previous,
+      (checkout, directory) => {
+        this.channel.assertCurrent(checkout);
+        const version = this.channel.cliVersion(checkout);
+        const lock = readFileSync(join(checkout, PLUGIN, "package-lock.json"), "utf8");
+        const owned = new Map([
+          [`${PLUGIN}/package.json`, { cli: version }],
+          [MANIFEST, readJson(join(checkout, MANIFEST))],
+          [MARKETPLACE, readJson(join(checkout, MARKETPLACE))],
+        ]);
+        if (!existsSync(join(checkout, "package.json"))) {
+          this.#migrate(checkout, sourceSha, owned);
+        } else {
+          const merge = this.#run(["merge", "--no-commit", "--no-ff", sourceSha], checkout);
+          if (merge.status !== 0 && merge.status !== 1)
+            throw new Error(`Git merge failed: ${merge.stderr}`);
+          const conflicts = this.#git(["diff", "--name-only", "--diff-filter=U"], checkout)
+            .split("\n")
+            .filter(Boolean);
+          for (const file of conflicts) {
+            if (file === `${PLUGIN}/package-lock.json`) continue;
+            if (!owned.has(file))
+              throw new Error(
+                `Shared file conflict: ${file}. Resolve it on ${this.channel.branch} before retrying.`,
+              );
+            this.#resolve(checkout, file, owned.get(file), directory);
+          }
         }
-      }
-      for (const [file, settings] of owned) {
-        const value = readJson(join(checkout, file));
-        this.#preserve(file, value, settings);
-        writeJson(join(checkout, file), value);
-      }
-      writeFileSync(join(checkout, PLUGIN, "package-lock.json"), lock);
-      const reviewedLock = JSON.parse(
-        this.#git(["show", `${sourceSha}:${PLUGIN}/package-lock.json`], checkout),
-      );
-      this.channel.pinTo(checkout, version, reviewedLock);
-      this.channel.brand(checkout);
-      this.#git(["add", "--all"], checkout);
-      const tree = this.#git(["write-tree"], checkout);
-      const commit = this.#git([
-        "commit-tree",
-        tree,
-        "-p",
-        previous,
-        "-p",
-        sourceSha,
-        "-m",
-        `chore(channel): merge ${this.channel.parent} into ${this.channel.branch}`,
-      ]);
-      return { changed: true, commit };
-    } finally {
-      this.#git(["worktree", "remove", "--force", checkout]);
-      rmSync(directory, { recursive: true, force: true });
-    }
+        for (const [file, settings] of owned) {
+          const value = readJson(join(checkout, file));
+          this.#preserve(file, value, settings);
+          writeJson(join(checkout, file), value);
+        }
+        writeFileSync(join(checkout, PLUGIN, "package-lock.json"), lock);
+        const reviewedLock = JSON.parse(
+          this.#git(["show", `${sourceSha}:${PLUGIN}/package-lock.json`], checkout),
+        );
+        this.channel.pinTo(checkout, version, reviewedLock);
+        this.channel.brand(checkout);
+        this.#git(["add", "--all"], checkout);
+        const tree = this.#git(["write-tree"], checkout);
+        const commit = this.#git([
+          "commit-tree",
+          tree,
+          "-p",
+          previous,
+          "-p",
+          sourceSha,
+          "-m",
+          `chore(channel): merge ${this.channel.parent} into ${this.channel.branch}`,
+        ]);
+        return { changed: true, commit };
+      },
+    );
   }
 
   publish(commit) {

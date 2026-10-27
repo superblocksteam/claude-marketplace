@@ -59,6 +59,11 @@ done
           stdio: "inherit",
         },
       );
+    } catch (error) {
+      console.error(
+        "For permission or protected-branch rejections, check CHANNEL_PUBLISH_TOKEN contents and workflows write access and the destination branch rules. The credential preflight checks repository read access only. Follow moved-tip diagnostics by re-running all jobs.",
+      );
+      throw error;
     } finally {
       rmSync(hooks, { recursive: true, force: true });
     }

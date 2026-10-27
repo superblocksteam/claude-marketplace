@@ -123,7 +123,10 @@ export class Channel {
       throw new Error(
         `Unexpected package alias for ${path}: expected ${installedName}, found ${name}; no permitted matching alias declarations.`,
       );
-    if (!entry.resolved) return;
+    if (typeof entry.resolved !== "string" || !entry.resolved)
+      throw new Error(
+        `Missing package tarball URL for ${path}; regenerate and review the lockfile.`,
+      );
     const registry = name.startsWith("@superblocksteam/") ? this.registry : PUBLIC_NPM;
     const url = new URL(entry.resolved);
     if (url.origin !== new URL(registry).origin || url.username || url.password)
@@ -218,7 +221,7 @@ export class Channel {
     try {
       return callback(directory, env);
     } catch (error) {
-      if (!this.isPublic)
+      if (!this.isPublic && Number.isInteger(error?.status) && error.status !== 0)
         console.error(
           "Private package operation failed. For npm 401/403/404 errors, check GH_PACKAGES_READ_TOKEN (NODE_AUTH_TOKEN), token expiration, read:packages/SSO access, and package/version availability. Local runs can use npm login --registry=https://npm.pkg.github.com --auth-type=legacy.",
         );

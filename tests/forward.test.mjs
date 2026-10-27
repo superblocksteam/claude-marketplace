@@ -149,11 +149,14 @@ writeFileSync("package-lock.json", JSON.stringify(lock, null, 2) + "\\n");
     const pkg = JSON.parse(readFileSync(join(this.checkout, path), "utf8"));
     pkg.dependencies["@superblocksteam/cli"] = version;
     this.write(path, pkg);
+    const resolved = version.includes("SNAPSHOT")
+      ? `https://npm.pkg.github.com/download/@superblocksteam/cli/${version}/${"a".repeat(40)}`
+      : `https://registry.npmjs.org/@superblocksteam/cli/-/cli-${version}.tgz`;
     this.write(`${plugin}/package-lock.json`, {
       lockfileVersion: 3,
       packages: {
         "": { dependencies: pkg.dependencies },
-        "node_modules/@superblocksteam/cli": { version },
+        "node_modules/@superblocksteam/cli": { version, resolved },
       },
     });
   }
@@ -279,6 +282,50 @@ test("migration refuses to discard files unique to the destination snapshot", (t
     /unexpected files.*plugins\/superblocks-plugin\/local-skill.md.*manual migration PR on next/i,
   );
   assert.equal(repo.git("rev-parse", "origin/next"), previous);
+});
+
+test("locked worktree cleanup preserves the preparation error and removes temporary files", (t) => {
+  const repo = new ChannelRepository(t);
+  repo.write("README.md", "incoming shared update\n");
+  const source = repo.commit("main", "update shared documentation");
+  const previous = repo.git("ls-remote", "origin", "refs/heads/next");
+  const failure = new Error("preparation failure before publication");
+  let temporary;
+  t.mock.method(Channel.named("next"), "pinTo", (checkout) => {
+    temporary = dirname(checkout);
+    repo.git("worktree", "lock", checkout);
+    throw failure;
+  });
+  assert.throws(
+    () => repo.forward("next").prepare(source),
+    (error) => error === failure,
+  );
+  assert.equal(existsSync(temporary), false);
+  assert.equal(repo.git("ls-remote", "origin", "refs/heads/next"), previous);
+});
+
+test("publication rejection explains credential permissions and preserves the destination", (t) => {
+  const repo = new ChannelRepository(t);
+  repo.write("README.md", "incoming shared update\n");
+  const source = repo.commit("main", "update shared documentation");
+  const branch = repo.forward("next");
+  const candidate = branch.prepare(source);
+  const previous = repo.git("ls-remote", "origin", "refs/heads/next");
+  mkdirSync(join(repo.origin, "hooks"), { recursive: true });
+  writeFileSync(
+    join(repo.origin, "hooks/pre-receive"),
+    "#!/bin/sh\necho 'fixture permission rejection' >&2\nexit 1\n",
+    { mode: 0o755 },
+  );
+  const log = t.mock.method(console, "error", () => {});
+  assert.throws(
+    () => branch.publish(candidate.commit),
+    (error) => error.status === 1,
+  );
+  assert.equal(repo.git("ls-remote", "origin", "refs/heads/next"), previous);
+  const guidance = log.mock.calls.flatMap((call) => call.arguments).join(" ");
+  assert.match(guidance, /CHANNEL_PUBLISH_TOKEN.*contents.*workflows.*branch/);
+  assert.equal(guidance.includes("fixture-write-token"), false);
 });
 
 test("migration applies upstream deletions and renames of unchanged legacy files", async (t) => {
