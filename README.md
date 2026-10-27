@@ -57,7 +57,8 @@ main (beta / production) -> next (staging) -> master (dev)
 
 Each branch owns its exact CLI dependency and lockfile in
 `plugins/superblocks-plugin`. It also owns its marketplace name and plugin
-branding. Other channels' pins are not stored on that branch.
+branding. Product display-name changes merge forward; each channel keeps its
+own suffix. Other channels' pins are not stored on that branch.
 
 | Channel | Branch   | Claude Code marketplace                     |
 | ------- | -------- | ------------------------------------------- |
@@ -71,29 +72,77 @@ lockfile. Dev installs private GitHub Packages builds and requires package read
 access: `npm login --registry=https://npm.pkg.github.com --auth-type=legacy`.
 
 The **Channels** workflow checks pull requests and pushes to all three branches.
+Verification and each promotion have separate concurrency groups, so pending
+promotion approvals do not block later verification jobs.
 After a successful push to `main`, it prepares a merge into `next`, preserves
-next's CLI pin and branding, refreshes its locked dependencies within their declared ranges, and runs the tests,
+next's CLI pin and branding, applies explicit security overrides, and runs the tests,
 installed dependency checks, packaging, and credentialless MCP startup check.
-Only then does it push that merge and repeat the process from `next` to `master`.
+Only then does a separate job push that merge. Its push starts the same process from `next` to `master`.
 A successful push directly to `next` propagates to `master` the same way. Changes
 on `master` stay there until explicitly promoted in the other direction.
 
-The cascade runs within one workflow because pushes using `GITHUB_TOKEN` do not
-trigger another push workflow. Shared-file conflicts stop propagation for manual
+Before enabling publication, create the `channel-publication` GitHub Environment:
+
+1. Select **Selected branches and tags** and add exact **Branch** rules for `main`,
+   `next`, and `master`; allow no tags or other branches. Protect these branches
+   against unreviewed workflow changes.
+2. Configure required reviewers, enable **Prevent self-review**, and disable
+   administrator bypass of the environment's protection rules.
+3. Store `CHANNEL_PUBLISH_TOKEN` **only as an environment secret**, with repository
+   contents and workflows write permissions (a fine-grained PAT or GitHub App
+   installation token). Remove any repository or organization secret of the same
+   name that is available to this repository.
+
+A repository secret would also be available to workflows added on unprotected
+branches. Declaring an environment in YAML does not configure its protection rules;
+complete this setup before adding the credential. See GitHub's
+[environment setup instructions](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
+
+The default
+`GITHUB_TOKEN` cannot publish workflow-file changes. The preflight waits for
+environment approval first. After approval, it rejects missing credentials and failed
+authenticated repository requests; preparation and verification cannot start until
+that check succeeds. This read-only check does not prove contents or workflows
+write access; configure both permissions on the token for this repository.
+Only that check and the final publication job use the environment and receive its
+credential; preparation and validation run with read-only permissions. Both privileged
+jobs wait for environment approval, so channel propagation and dev promotion require
+reviewer approval even when upstream automation starts the workflow. Review the
+workflow ref and candidate before approving each privileged job. Candidate bundles
+expire after one day. Approval after expiry fails at artifact download before any
+publish command runs. **Re-run failed jobs** cannot restore an expired bundle; choose
+**Re-run all jobs** to prepare and verify a fresh candidate, then approve again.
+This token's pushes trigger the next channel's workflow. Shared-file conflicts stop propagation for manual
 resolution on the destination branch. A concurrent destination update rejects
-publication; rerun **Channels** from the parent branch to prepare and test a fresh
-candidate. Publication appends merge commits and never force-pushes.
+publication. Choose **Re-run all jobs**, or start **Channels** from the parent branch,
+to prepare and test a fresh candidate. **Re-run failed jobs** reuses the original
+bundle and cannot recover from a stale candidate. Bundles have unique names per
+run attempt; downstream jobs use the name recorded by the producer.
+Publication appends merge commits and never force-pushes.
 
 The first cascade migrates the existing package-only channel snapshots into full
-repository branches, preserving their history, CLI pins, and branding. Run it
+repository branches, preserving their history, CLI pins, and branding. Migration
+compares legacy content with its stamped source and rejects independent edits
+or missing provenance for manual resolution. Run it
 from `main` before relying on direct dev pin updates. Branch protection must
 permit the automation's normal fast-forward pushes; this change does not modify
 repository settings.
 
 Security overrides are shared package settings, so fixes to them merge forward
 while CLI versions stay on their own branches. npm does not inherit the CLI
-monorepo's pnpm overrides. [AR-904](https://linear.app/superblocks/issue/AR-904)
-tracks removing them once published dependencies contain the fixes.
+monorepo's pnpm overrides. A follow-up will remove them once published
+dependencies contain the fixes. Forward merges preserve unrelated locked versions
+and reject registry or integrity changes. Before saving a constrained lockfile,
+npm validates its dependency ranges with a dry-run install and reports required
+unreviewed changes for a lockfile PR. Forward merges accept new
+dependencies only when their exact entries already exist in the incoming branch's
+reviewed lockfile. Their changes to existing versions are limited to explicit
+overrides; the destination CLI version stays unchanged.
+Updating only the lockfile on one branch does not update existing transitive
+versions on other channels. To ship a security fix across channels, add an
+explicit shared override or open a lockfile PR against each affected channel.
+If a forward merge requires additional dependency changes, refresh that channel's
+lockfile with `npm run pin` and review it in a PR before retrying the merge.
 
 ### Pin a newer CLI
 
@@ -105,9 +154,21 @@ npm run pin -- <channel> [tag-or-version]
 
 Without a version, this resolves the channel's npm tag (`beta`, `next`, or
 `master`) to an exact version. The command refuses a different channel's tree.
+CLI pin updates resolve the full dependency graph, including exact-pinned internal
+packages and new or changed transitive dependencies. Registry, tarball identity,
+alias, and installability checks still apply. Every non-root lock entry must include
+a resolved registry tarball URL; regenerate incomplete locks before using a channel
+command. Review both package files in the PR.
 Open a PR against that same branch. For beta, also bump the plugin version in
 `.claude-plugin/marketplace.json` and the plugin manifest. Next and dev versions
-include the source commit and CLI version automatically.
+include a plugin-content hash and CLI version automatically. After direct plugin
+edits on next or dev, stage any new plugin files, then run
+`node .github/scripts/channel.mjs version <channel>`
+and commit both manifests. The hash covers current contents of Git-tracked plugin
+files; untracked local files are ignored. Adding a new file after computing the
+version requires recomputing it. Verification rejects stale versions before forwarding
+or release packaging; require the Channels check on channel PRs to enforce this
+before merge. Direct pushes also fail validation if the version is stale.
 
 To update dev directly from the latest published `@master`:
 
@@ -115,34 +176,55 @@ To update dev directly from the latest published `@master`:
 npm run update:dev
 ```
 
-This requires Node.js 24, Git, authenticated `gh` with repository write access,
-and GitHub Packages read access. `NODE_AUTH_TOKEN` can supply the package read
-token; GitHub authentication remains separate through `gh` or `GH_TOKEN`.
-The command clones the latest `master` into a temporary directory, resolves the
-exact CLI version, refreshes the pin, lockfile, and branding, and runs the same full
-verification as CI before pushing to `master`. It leaves the caller's checkout
-untouched and creates no pin PR. An unchanged version does nothing. Failed
-verification or a concurrent branch update leaves the remote branch untouched.
-Npm pin resolution uses only the package manifests in an isolated directory,
-with proxying disabled, TLS verification enabled, and GitHub write credentials
-removed from its environment.
+This requires Node.js 24 and authenticated `gh` with permission to dispatch Actions.
+The command requests **Actions > Update dev pin** on `main` and returns after GitHub
+accepts the request. Follow that workflow for the final result; the local command
+does not install or execute the new CLI.
+Exit zero means the dispatch was accepted, not that publication succeeded.
+Automation calling this command must observe the requested workflow's final result.
 
-The **Update dev CLI pin** workflow receives `cli-master-published` repository
-dispatches with `client_payload.cli_version`, or the same exact `cli_version`
-through a manual dispatch. It ignores events whose version no longer matches the
-npm master tag. A read-only job prepares the pin and branding, captures their
-SHA-256 digest, and runs full verification. A separate writer checks out the
-original source commit, independently reconstructs all four changed files, and
-pushes only if their digest matches and the tag is still current. It does not
-execute installed packages or consume files from the verification job.
+The workflow also receives `cli-master-published` repository dispatches from the
+Superblocks master publishing pipeline:
 
-Merge the channel cascade first, then this receiver, and wait for both channel
-branches to receive the receiver code before enabling the Superblocks publish
-dispatcher. The publisher must stop checking out the old pinned updater revision;
-merging marketplace changes alone does not update that external reference.
-Existing pin PRs against `main` belong to the old model and should be closed
-without merging. The no-argument `npm run update:dev` remains available for a
-manual, fully validated direct update.
+```json
+{
+  "event_type": "cli-master-published",
+  "client_payload": { "cli_version": "2.0.0-SNAPSHOT.aa736fe1dc9d8e89" }
+}
+```
+
+The receiver requires an exact `cli_version` matching the current npm `@master`
+tag. Stale events skip preparation, verification, and publication; missing or
+malformed versions fail before registry or Git access. Manual workflow runs and
+`npm run update:dev` still resolve the current tag. Repository dispatch runs on
+`main` and uses the same protected publication environment described above.
+
+The workflow prepares an immutable commit from the latest `master`, resolving the
+exact CLI version and refreshing its full dependency graph, pin, and branding without running
+package scripts. A separate runner verifies that commit, builds and smoke-tests
+the bundle, and rejects changes to tracked files during verification. A third
+runner publishes the original prepared commit only after verification passes.
+The CLI verification runner has no repository write credential. An unchanged
+version does nothing; failed verification, a moved npm tag, or a concurrent branch
+update leaves the remote branch untouched. The caller's checkout stays unchanged,
+and no pin PR is created.
+
+Dev promotion trusts the CLI master publishing pipeline. Before pushing, the
+workflow also requires the exact version's registry tarball URL and integrity to
+match the prepared lockfile. A mismatch stops publication for investigation.
+
+Configure `GH_PACKAGES_READ_TOKEN` for private package access and
+`CHANNEL_PUBLISH_TOKEN` only in the protected `channel-publication` environment
+configured above. Pin resolution uses isolated package
+manifests, disabled proxying, verified TLS, and no GitHub write token in the npm
+environment. Superblocks' master publish automation can send the dispatch above
+or keep invoking `npm run update:dev` with workflow-dispatch permission. Publication
+status lives in the requested workflow. Missing or expired publication credentials fail its preflight;
+package preparation, verification, and publication have separate job results.
+If publication reports a moved tag or branch, choose **Re-run all jobs** or start a
+new **Update dev pin** run to prepare and verify a fresh candidate.
+Existing pin PRs against `main` belong to the old model
+and should be closed without merging.
 
 ## Cowork releases
 

@@ -1,6 +1,10 @@
 name: Channels
 "on":
-  pull_request: {}
+  pull_request:
+    branches:
+      - main
+      - next
+      - master
   push:
     branches:
       - main
@@ -9,9 +13,6 @@ name: Channels
   workflow_dispatch: {}
 permissions:
   contents: read
-concurrency:
-  group: channels-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
     uses: ./.github/workflows/channel.yml
@@ -21,29 +22,31 @@ jobs:
         == 'next' && 'next' || 'beta' }}
     secrets:
       github-packages-token: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+    concurrency:
+      group: channels-check-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
   forward-next:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: check
-    permissions:
-      contents: write
     uses: ./.github/workflows/channel.yml
     with:
       channel: next
       forward-from: ${{ github.sha }}
+    concurrency:
+      group: channel-promotion-next
+      cancel-in-progress: false
+    secrets:
+      CHANNEL_PUBLISH_TOKEN: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
   forward-dev:
-    if:
-      ${{ always() && !cancelled() && github.event_name != 'pull_request' && needs.check.result == 'success' &&
-      ((github.ref == 'refs/heads/main' && needs.forward-next.result == 'success') || github.ref == 'refs/heads/next')
-      }}
-    needs:
-      - check
-      - forward-next
-    permissions:
-      contents: write
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/next'
+    needs: check
     uses: ./.github/workflows/channel.yml
     with:
       channel: dev
-      ref: ${{ needs.forward-next.outputs.commit || github.sha }}
-      forward-from: ${{ needs.forward-next.outputs.commit || github.sha }}
+      forward-from: ${{ github.sha }}
     secrets:
       github-packages-token: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+      CHANNEL_PUBLISH_TOKEN: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
+    concurrency:
+      group: channel-promotion-dev
+      cancel-in-progress: false
