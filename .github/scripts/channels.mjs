@@ -217,6 +217,12 @@ export class Channel {
     }
     try {
       return callback(directory, env);
+    } catch (error) {
+      if (!this.isPublic)
+        console.error(
+          "Private package operation failed. For npm 401/403/404 errors, check GH_PACKAGES_READ_TOKEN (NODE_AUTH_TOKEN), token expiration, read:packages/SSO access, and package/version availability. Local runs can use npm login --registry=https://npm.pkg.github.com --auth-type=legacy.",
+        );
+      throw error;
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

@@ -33,6 +33,41 @@ test("dev package operations preserve npm-login credentials when no token is sup
   }, environment);
 });
 
+test("private npm failures explain credential recovery without replacing the error or leaking tokens", (t) => {
+  const log = t.mock.method(console, "error", () => {});
+  const failure = Object.assign(new Error("npm E401"), { status: 1 });
+  for (const token of [undefined, "expired-fixture-token"]) {
+    let temporary;
+    const environment = token ? { NODE_AUTH_TOKEN: token } : {};
+    assert.throws(
+      () =>
+        Channel.named("dev").withNpm((directory) => {
+          temporary = directory;
+          throw failure;
+        }, environment),
+      (error) => error === failure && error.status === 1,
+    );
+    assert.equal(existsSync(temporary), false);
+  }
+  assert.equal(log.mock.callCount(), 2);
+  for (const call of log.mock.calls) {
+    const message = call.arguments.join(" ");
+    assert.match(message, /GH_PACKAGES_READ_TOKEN.*NODE_AUTH_TOKEN/);
+    assert.match(message, /401.*403.*404/);
+    assert.match(message, /npm login/);
+    assert.equal(message.includes("expired-fixture-token"), false);
+  }
+  Channel.named("dev").withNpm(() => {}, {});
+  assert.throws(
+    () =>
+      Channel.named("beta").withNpm(() => {
+        throw failure;
+      }, {}),
+    (error) => error === failure,
+  );
+  assert.equal(log.mock.callCount(), 2);
+});
+
 test("channels form the main -> next -> master chain", () => {
   assert.deepEqual(
     Channel.all().map(({ name, distTag, branch, parent }) => ({ name, distTag, branch, parent })),
