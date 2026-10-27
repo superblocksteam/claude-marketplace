@@ -18,6 +18,19 @@ test("the directory listing includes a README in the installed plugin folder", a
   assert.ok(prose.split(/\s+/).length >= 40, "The directory requires at least 40 prose words");
 });
 
+test("the directory listing uses a square PNG icon from the installed plugin folder", async () => {
+  const icon = await readFile(repoFile("plugins/superblocks-plugin/.claude-plugin/icon.png"));
+  assert.ok(
+    icon.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")),
+    "Icon must be a PNG",
+  );
+  assert.equal(icon.toString("ascii", 12, 16), "IHDR");
+  const [width, height] = [icon.readUInt32BE(16), icon.readUInt32BE(20)];
+  assert.equal(width, height, "The directory requires a square icon");
+  assert.ok(width >= 512 && width <= 2048, `The directory requires 512 to 2048 px, got ${width}`);
+  assert.ok(icon.length < 2 * 1024 * 1024, "The directory requires an icon under 2 MB");
+});
+
 test("the installed plugin includes the Superblocks Community License Agreement", async () => {
   const license = await readFile(repoFile("plugins/superblocks-plugin/LICENSE"), "utf8");
   assert.match(license, /^Superblocks Community License Agreement\n/);

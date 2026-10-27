@@ -79,10 +79,14 @@ const plugin = resolve(process.argv[2]);
 const output = resolve(process.argv[3]);
 const channel = Channel.named(process.argv[4]);
 const cliRoot = join(plugin, "node_modules/@superblocksteam/cli");
+const icon = join(plugin, ".claude-plugin/icon.png");
 if (!existsSync(join(cliRoot, "bin/run.js"))) {
   throw new Error("Install the plugin's CLI dependency before building its MCPB.");
 }
-const cli = JSON.parse(readFileSync(join(cliRoot, "package.json"), "utf8"));
+if (!existsSync(icon)) {
+  throw new Error("Add the plugin icon at .claude-plugin/icon.png before building its MCPB.");
+}
+const cli =JSON.parse(readFileSync(join(cliRoot, "package.json"), "utf8"));
 if (typeof cli.version !== "string" || !/^[0-9][0-9A-Za-z.+-]*$/.test(cli.version)) {
   throw new Error("CLI version contains unsafe filename characters.");
 }
@@ -102,6 +106,7 @@ try {
   cpSync(join(plugin, "scripts/launch-mcp.mjs"), join(bundle, "scripts/launch-mcp.mjs"));
   cpSync(join(plugin, "LICENSE"), join(bundle, "LICENSE"));
   cpSync(join(plugin, "README.md"), join(bundle, "README.md"));
+  cpSync(icon, join(bundle, "icon.png"));
   const dependencies = realpathSync(join(plugin, "node_modules"));
   copyRuntimeDependencies(dependencies, join(bundle, "node_modules"));
   const manifest = {
@@ -112,6 +117,7 @@ try {
     description: "Build, import, and manage Superblocks applications with browser sign-in.",
     author: pluginManifest.author,
     homepage: pluginManifest.homepage,
+    icon: "icon.png",
     tools_generated: true,
     compatibility: { platforms: [process.platform], runtimes: { node: ">=24" } },
     server: {
@@ -133,6 +139,7 @@ try {
     join(cowork, ".claude-plugin/plugin.json"),
     `${JSON.stringify({ ...pluginManifest, displayName, version: cli.version, description: manifest.description, mcpServers: "./superblocks.mcpb" }, null, 2)}\n`,
   );
+  cpSync(icon, join(cowork, ".claude-plugin/icon.png"));
   cpSync(join(plugin, "skills"), join(cowork, "skills"), { recursive: true });
   cpSync(join(plugin, "README.md"), join(cowork, "README.md"));
   cpSync(join(plugin, "LICENSE"), join(cowork, "LICENSE"));
