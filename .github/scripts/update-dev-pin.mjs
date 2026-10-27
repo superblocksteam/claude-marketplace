@@ -10,8 +10,21 @@ export class DevPinUpdate {
   }
 
   prepare() {
+    return this.#prepare(this.#latestVersion(Channel.named("dev")));
+  }
+
+  prepareDispatch(version) {
+    if (!Channel.isExactVersion(version))
+      throw new Error(`Invalid CLI version: ${JSON.stringify(version)}`);
+    if (this.#latestVersion(Channel.named("dev")) !== version) {
+      console.log(`Skipping CLI ${version}: @master has moved.`);
+      return { changed: false, version };
+    }
+    return this.#prepare(version);
+  }
+
+  #prepare(version) {
     const channel = Channel.named("dev");
-    const version = this.#latestVersion(channel);
     const previous = this.#tip();
     return new GitWorktree(this.repository, "superblocks-dev-pin-").use(previous, (checkout) => {
       channel.assertCurrent(checkout);

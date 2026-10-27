@@ -1,6 +1,9 @@
 name: Update dev pin
 "on":
   workflow_dispatch: {}
+  repository_dispatch:
+    types:
+      - cli-master-published
 permissions:
   contents: read
 concurrency:
@@ -10,6 +13,8 @@ jobs:
   credentials:
     uses: ./.github/workflows/publication-ready.yml
     if: github.ref == 'refs/heads/main'
+    secrets:
+      CHANNEL_PUBLISH_TOKEN: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
   prepare:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -31,7 +36,9 @@ jobs:
         id: prepare
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
-        run: node .github/scripts/dev-pin.mjs prepare
+          PIN_COMMAND: ${{ github.event_name == 'repository_dispatch' && 'prepare-dispatch' || 'prepare' }}
+          CLI_VERSION: ${{ github.event.client_payload.cli_version }}
+        run: node .github/scripts/dev-pin.mjs "$PIN_COMMAND" "$CLI_VERSION"
       - name: Export prepared commit
         if: steps.prepare.outputs.changed == 'true'
         env:

@@ -35,6 +35,8 @@ jobs:
     concurrency:
       group: channel-promotion-next
       cancel-in-progress: false
+    secrets:
+      CHANNEL_PUBLISH_TOKEN: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
   forward-dev:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/next'
     needs: check
@@ -44,6 +46,7 @@ jobs:
       forward-from: ${{ github.sha }}
     secrets:
       github-packages-token: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+      CHANNEL_PUBLISH_TOKEN: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
     concurrency:
       group: channel-promotion-dev
       cancel-in-progress: false

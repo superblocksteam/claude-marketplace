@@ -20,6 +20,8 @@ name: Channel
     secrets:
       github-packages-token:
         required: false
+      CHANNEL_PUBLISH_TOKEN:
+        required: false
     outputs:
       commit:
         value: ${{ jobs.build.outputs.commit }}
@@ -27,6 +29,8 @@ jobs:
   credentials:
     uses: ./.github/workflows/publication-ready.yml
     if: inputs.forward-from != ''
+    secrets:
+      CHANNEL_PUBLISH_TOKEN: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
   build:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
