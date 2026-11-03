@@ -150,6 +150,7 @@ try {
   );
   cpSync(icon, join(cowork, ".claude-plugin/icon.png"));
   cpSync(join(plugin, "skills"), join(cowork, "skills"), { recursive: true });
+  cpSync(join(plugin, "hooks"), join(cowork, "hooks"), { recursive: true });
   cpSync(join(plugin, "README.md"), join(cowork, "README.md"));
   cpSync(join(plugin, "LICENSE"), join(cowork, "LICENSE"));
   cpSync(coworkBundle, join(cowork, "superblocks.mcpb"), { mode: constants.COPYFILE_FICLONE });

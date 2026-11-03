@@ -109,6 +109,11 @@ process.on("SIGTERM", () => process.exit(0));
   );
   assert.ok(files.includes(".claude-plugin/plugin.json"));
   assert.ok(files.includes("skills/configure/SKILL.md"));
+  assert.ok(
+    files.includes("hooks/hooks.json"),
+    "The install archive must include the plugin hooks",
+  );
+  assert.ok(files.includes("hooks/guidance.sh"));
   assert.ok(files.includes("README.md"), "The install archive must include the plugin README");
   assert.ok(files.includes("LICENSE"), "The install archive must include the plugin license");
   assert.ok(
