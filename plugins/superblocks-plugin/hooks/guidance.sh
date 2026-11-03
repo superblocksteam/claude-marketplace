@@ -36,7 +36,7 @@ is() {
 
 case "$event" in
   SessionStart)
-    emit 'When using the Superblocks tools: Do not create a Claude artifact or use the host'\''s own file-upload UI. If the file exists only in this chat'\''s scratchpad path (for example /tmp/claude-.../scratchpad), send text source through upload_artifact files: [{ path, content }] instead of filePath. Do not ask the user to restart Claude. Claude-in-Chrome is not a mid-turn canvas. Do not use it to screenshot the live Vite app while a Gateway turn is held.'
+    emit 'About the Superblocks tools: files the user attaches reach Superblocks through upload_artifact, not through a Claude artifact or the host'\''s own file-upload UI. A file that exists only in this chat'\''s scratchpad path (for example /tmp/claude-.../scratchpad) reaches Superblocks as text source in upload_artifact files: [{ path, content }], not through filePath. Superblocks never needs the user to restart Claude. Claude-in-Chrome is not a mid-turn canvas: it is not used to screenshot the live Vite app while a Gateway turn is held.'
     exit 0
     ;;
   PostToolUse | PostToolUseFailure) ;;
@@ -57,51 +57,44 @@ case "$tool" in
 esac
 
 toolsearch='select:mcp__remote-devices__Claude_Browser__preview_start,mcp__remote-devices__Claude_Browser__navigate,mcp__remote-devices__Claude_Browser__tabs_context'
-browser_tools="Load your browser pane tools, you will need them. Call ToolSearch with query $toolsearch. When a check_app_progress or get_app result includes browserNavigation, ensure its exact URL is open in Cowork's embedded Page browser before any other action. If that app is already open, do not reload it; otherwise, focus the Page URL field, enter that exact URL, and press Enter. Verify the app loaded; normal authentication or canonical URL redirects are allowed. A blank tab is insufficient. Keep the Page open so the user can watch the live canvas update."
-app_load_check="Your automatic verification is a load check and inspection of visible state, not a feature-by-feature test run. Run interactive feature tests only when the user requests testing. Do not click app controls or inspect API traffic as part of a load check; normal navigation and authentication are allowed. Keep relaying Superblocks' own test results. Do not claim features passed from a load check alone."
-publish_details="Before any other action, ensure the publishDetailsUrl from this result is open in Cowork's embedded Page browser and verify the publish details loaded."
-open_app="ensure the browserNavigation URL from this result is open in Cowork's embedded Page browser"
+browser_tools="Cowork's browser pane tools load through ToolSearch with query $toolsearch. When a check_app_progress or get_app result includes browserNavigation, its exact URL is shown in Cowork's embedded Page browser before any other action. An app that is already open there is not reloaded; otherwise its URL goes into the Page URL field, followed by Enter. The app counts as loaded after normal authentication or canonical URL redirects; a blank tab does not count. The Page stays open so the user can watch the live canvas update."
+app_load_check="Superblocks' automatic verification is a load check and inspection of visible state, not a feature-by-feature test run. Interactive feature tests run only when the user requests testing. A load check does not click app controls or inspect API traffic; normal navigation and authentication are allowed. Superblocks' own test results are still relayed. A load check alone does not show that features passed."
+publish_details="This result's publishDetailsUrl is the publish details page, which shows the rollout live. In Cowork it is open in the embedded Page browser before any other action, and the publish details are checked to have loaded."
+editor="This result's browserNavigation URL is the Superblocks editor for this app. In Cowork it is open in the embedded Page browser before any other action"
 
 # Without browserNavigation, an app that is ready or needs the editor means the
 # editor did not answer yet.
 editor_unavailable() {
   if is pendingAction open_editor; then
-    emit "The build finished but did not save. Do not tell the user the app was saved. The editor is temporarily unavailable. Call \`get_app\` again in a few seconds. Do not tell the user the editor is open until the result includes \`browserNavigation\`."
+    emit "The build finished but did not save, so the app is not saved. The editor is temporarily unavailable; \`get_app\` called again in a few seconds returns \`browserNavigation\` once it answers. Until a result includes \`browserNavigation\`, the editor is not open for the user."
   elif [ "$1" = get_app ] && is status ready; then
-    emit "The editor is temporarily unavailable. Call \`get_app\` again in a few seconds. Do not tell the user the app is open until the result includes \`browserNavigation\`."
+    emit "The editor is temporarily unavailable; \`get_app\` called again in a few seconds returns \`browserNavigation\` once it answers. Until a result includes \`browserNavigation\`, the app is not open for the user."
   fi
 }
 
 case "${tool##*__}" in
   start_app | edit_app)
-    emit "While this result's status is \"building\": CRITICAL: load your browser pane tools now, before the first poll - call ToolSearch with query $toolsearch. Without them you cannot open the app when a later result carries browserNavigation. In Cowork's embedded Page browser, and only there, you may open this result's \`browser.canvas.editUrl\` now. $browser_tools"
+    emit "While this result's status is \"building\", the browser pane tools are needed before the first check_app_progress poll; without them the app cannot be opened when a later result carries browserNavigation. Cowork's embedded Page browser, and only that browser, may show this result's \`browser.canvas.editUrl\` now, while the build runs. $browser_tools"
     ;;
-  check_app_progress)
+  check_app_progress | get_app)
     if ! has browserNavigation; then
-      editor_unavailable check_app_progress
+      editor_unavailable "${tool##*__}"
     elif is pendingAction decide_in_editor; then
-      emit "CRITICAL DO NOT IGNORE: Before any other action, $open_app. $browser_tools"
+      emit "$editor, where the user answers this decision. $browser_tools"
     else
-      emit "CRITICAL DO NOT IGNORE: viewStatus is ready, before any other action, $open_app and verify the app loaded. $app_load_check $browser_tools"
-    fi
-    ;;
-  get_app)
-    if ! has browserNavigation; then
-      editor_unavailable get_app
-    elif is pendingAction decide_in_editor; then
-      emit "Before any other action, $open_app. $browser_tools"
-    else
-      emit "Before any other action, $open_app and verify the app loaded. $app_load_check $browser_tools"
+      ready=""
+      [ "${tool##*__}" = check_app_progress ] && ready="viewStatus is ready. "
+      emit "$ready$editor, and the app is checked to have loaded. $app_load_check $browser_tools"
     fi
     ;;
   build_app)
-    emit "When status is \"ready\": Before any other action, ensure the previewUrl from this result is open in Cowork's embedded Page browser and verify only that the commit preview loaded. $browser_tools"
+    emit "When status is \"ready\", this result's previewUrl is the commit preview. In Cowork it is open in the embedded Page browser before any other action, and only the preview loading is checked. $browser_tools"
     ;;
   get_preview_status)
-    emit "When status is \"ready\": Before any other action, open the exact \`previewUrl\` from the original \`build_app\` result in Cowork's embedded Page browser and verify only that the commit preview loaded. $browser_tools"
+    emit "When status is \"ready\", the commit preview is the exact \`previewUrl\` from the original \`build_app\` result. In Cowork it is open in the embedded Page browser before any other action, and only the preview loading is checked. $browser_tools"
     ;;
   publish_app)
-    has publishDetailsUrl && emit "On either successful status, open publishDetailsUrl automatically in the browser pane before the first check_publish_progress poll. $publish_details $browser_tools"
+    has publishDetailsUrl && emit "On either successful status, Cowork shows publishDetailsUrl in the browser pane automatically, before the first check_publish_progress poll. $publish_details $browser_tools"
     ;;
   check_publish_progress)
     has publishDetailsUrl && emit "$publish_details $browser_tools"
@@ -109,16 +102,16 @@ case "${tool##*__}" in
   create_integration)
     if has integration_url; then
       case "$input" in
-        *sb_integration_setup*) emit "Open the exact returned integration_url in Cowork's browser pane side panel even if the app editor is already open. That URL opens the Integrations tab inside the editor so the user can enter credentials there. Do not navigate to the org Integrations page. $browser_tools" ;;
-        *) emit "Open the exact returned integration_url in Cowork's browser pane side panel. $browser_tools" ;;
+        *sb_integration_setup*) emit "This result's integration_url opens the Integrations tab inside the app editor, where the user enters credentials. In Cowork it opens in the browser pane side panel, even when the app editor is already open there. The org Integrations page is not part of this step. $browser_tools" ;;
+        *) emit "This result's integration_url opens the integration in Superblocks. In Cowork it opens in the browser pane side panel. $browser_tools" ;;
       esac
     fi
     ;;
   login)
-    emit "After success, continue in this Cowork task with the updated account."
+    emit "In Cowork, a successful login applies to this same task, which continues with the updated account."
     ;;
   set_server)
-    emit "Continue in this Cowork task after success."
+    emit "In Cowork, a successful server change applies to this same task, which continues after success."
     ;;
 esac
 exit 0
