@@ -75,11 +75,6 @@ const env = {
     ),
   ),
   SUPERBLOCKS_MCP_BROWSER_LOGIN: browserLogin,
-  // Cowork asks the user with its own question form and sends back the answer,
-  // so Superblocks accepts that answer for the decision it showed. Clients that
-  // support MCP form questions, such as Claude Code, keep using those. CLIs that
-  // predate this setting ignore it.
-  GATEWAY_HOST_COLLECTS_APPROVALS: "true",
 };
 
 if (Number(process.versions.node.split(".")[0]) < 24) {

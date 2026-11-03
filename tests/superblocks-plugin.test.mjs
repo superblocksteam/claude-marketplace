@@ -104,7 +104,7 @@ test("default launch runs the installed CLI without npm or npx", async (t) => {
   t.after(() => rm(directory, { force: true, recursive: true }));
   const launcher = await installedPlugin(
     directory,
-    "console.log(JSON.stringify({ args: process.argv.slice(2), browserLogin: process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN, hostCollectsApprovals: process.env.GATEWAY_HOST_COLLECTS_APPROVALS }));\n",
+    "console.log(JSON.stringify({ args: process.argv.slice(2), browserLogin: process.env.SUPERBLOCKS_MCP_BROWSER_LOGIN }));\n",
   );
   for (const command of ["npm", "npx"]) {
     const executable = join(directory, command);
@@ -119,11 +119,7 @@ test("default launch runs the installed CLI without npm or npx", async (t) => {
   delete env.SUPERBLOCKS_MCP_BROWSER_LOGIN;
   delete env.SUPERBLOCKS_SERVER_URL;
   const { stdout, stderr } = await execFile(process.execPath, [launcher], { cwd: tmpdir(), env });
-  assert.deepEqual(JSON.parse(stdout), {
-    args: ["mcp", "serve"],
-    browserLogin: "true",
-    hostCollectsApprovals: "true",
-  });
+  assert.deepEqual(JSON.parse(stdout), { args: ["mcp", "serve"], browserLogin: "true" });
   assert.doesNotMatch(stderr, /Ignoring/);
 });
 
