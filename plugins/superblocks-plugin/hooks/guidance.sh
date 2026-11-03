@@ -66,7 +66,7 @@ editor="This result's browserNavigation URL is the Superblocks editor for this a
 # editor did not answer yet.
 editor_unavailable() {
   if is pendingAction open_editor; then
-    emit "The build finished but did not save, so the app is not saved. The editor is temporarily unavailable; \`get_app\` called again in a few seconds returns \`browserNavigation\` once it answers. Until a result includes \`browserNavigation\`, the editor is not open for the user."
+    emit "The build finished but did not save, so the app is not saved. The editor did not answer yet. This result's \`editUrl\` is the editor, and \`get_app\` returns \`browserNavigation\` once it answers."
   elif [ "$1" = get_app ] && is status ready; then
     emit "The editor is temporarily unavailable; \`get_app\` called again in a few seconds returns \`browserNavigation\` once it answers. Until a result includes \`browserNavigation\`, the app is not open for the user."
   fi

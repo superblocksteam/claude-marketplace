@@ -563,7 +563,7 @@ test("Cowork retries get_app while the editor is temporarily unavailable", async
         status: "checkpoint_failed",
         pendingAction: "open_editor",
       }),
-      "The build finished but did not save, so the app is not saved. The editor is temporarily unavailable; `get_app` called again in a few seconds returns `browserNavigation` once it answers. Until a result includes `browserNavigation`, the editor is not open for the user.",
+      "The build finished but did not save, so the app is not saved. The editor did not answer yet. This result's `editUrl` is the editor, and `get_app` returns `browserNavigation` once it answers.",
     );
   }
   assert.equal(
