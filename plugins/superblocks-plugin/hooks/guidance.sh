@@ -62,11 +62,13 @@ app_load_check="Superblocks' automatic verification is a load check and inspecti
 publish_details="This result's publishDetailsUrl is the publish details page, which shows the rollout live. In Cowork it is open in the embedded Page browser before any other action, and the publish details are checked to have loaded."
 editor="This result's browserNavigation URL is the Superblocks editor for this app. In Cowork it is open in the embedded Page browser before any other action"
 
-# Without browserNavigation, an app that is ready or needs the editor means the
-# editor did not answer yet.
+# The gateway checks that the editor answers for get_app, and for
+# check_app_progress only once viewStatus is ready. Without browserNavigation,
+# the check failed. Other results keep the gateway's own text.
 editor_unavailable() {
+  [ "$1" = check_app_progress ] && ! is viewStatus ready && return 0
   if is pendingAction open_editor; then
-    emit "The build finished but did not save, so the app is not saved. The editor did not answer yet. This result's \`editUrl\` is the editor, and \`get_app\` returns \`browserNavigation\` once it answers."
+    emit "The build finished but did not save, so the app is not saved. The editor is temporarily unavailable; \`get_app\` called again in a few seconds returns \`browserNavigation\` once it answers. Until a result includes \`browserNavigation\`, the editor is not open for the user."
   elif [ "$1" = get_app ] && is status ready; then
     emit "The editor is temporarily unavailable; \`get_app\` called again in a few seconds returns \`browserNavigation\` once it answers. Until a result includes \`browserNavigation\`, the app is not open for the user."
   fi

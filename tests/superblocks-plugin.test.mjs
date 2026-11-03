@@ -557,15 +557,32 @@ test("Cowork gets no browserNavigation guidance when the word only appears in te
 });
 
 test("Cowork retries get_app while the editor is temporarily unavailable", async () => {
-  for (const name of ["check_app_progress", "get_app"]) {
-    assert.equal(
-      await runGuidance("PostToolUse", `${COWORK_TOOL}${name}`, {
-        status: "checkpoint_failed",
-        pendingAction: "open_editor",
-      }),
-      "The build finished but did not save, so the app is not saved. The editor did not answer yet. This result's `editUrl` is the editor, and `get_app` returns `browserNavigation` once it answers.",
-    );
-  }
+  const notSaved =
+    "The build finished but did not save, so the app is not saved. The editor is temporarily unavailable; `get_app` called again in a few seconds returns `browserNavigation` once it answers. Until a result includes `browserNavigation`, the editor is not open for the user.";
+  assert.equal(
+    await runGuidance("PostToolUse", `${COWORK_TOOL}get_app`, {
+      status: "checkpoint_failed",
+      pendingAction: "open_editor",
+    }),
+    notSaved,
+  );
+  assert.equal(
+    await runGuidance("PostToolUse", `${COWORK_TOOL}check_app_progress`, {
+      status: "checkpoint_failed",
+      viewStatus: "ready",
+      pendingAction: "open_editor",
+    }),
+    notSaved,
+  );
+  // The gateway does not check the editor here, so its own text stands.
+  assert.equal(
+    await runGuidance("PostToolUse", `${COWORK_TOOL}check_app_progress`, {
+      status: "checkpoint_failed",
+      viewStatus: "building",
+      pendingAction: "open_editor",
+    }),
+    undefined,
+  );
   assert.equal(
     await runGuidance("PostToolUse", `${COWORK_TOOL}get_app`, { status: "ready" }),
     "The editor is temporarily unavailable; `get_app` called again in a few seconds returns `browserNavigation` once it answers. Until a result includes `browserNavigation`, the app is not open for the user.",
