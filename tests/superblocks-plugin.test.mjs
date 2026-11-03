@@ -369,3 +369,223 @@ test(
     }
   },
 );
+
+const APP_ID = "00000000-0000-4000-8000-000000000001";
+const EDIT_URL = `https://app.superblocks.com/code-mode/applications/edit/${APP_ID}`;
+const COWORK_TOOL = "mcp__remote-devices__plugin_superblocks_superblocks__";
+const CLAUDE_CODE_TOOL = "mcp__plugin_superblocks_superblocks__";
+
+// A start_app result logged from a Cowork session, with its ids replaced.
+const START_APP_RESULT = {
+  applicationId: APP_ID,
+  editUrl: EDIT_URL,
+  mode: "BUILD",
+  name: "Build a small app for tracking team lunch orders.",
+  status: "building",
+  browser: {
+    captureMode: "gateway_chromium",
+    canvas: { editUrl: EDIT_URL, openWhileBuilding: "claude_cowork_side_panel_only" },
+    driver: {
+      mustNotCloseUntil:
+        "the Superblocks task is done (status ready, or the user no longer needs the browser session)",
+    },
+    hostBrowserTools: "cowork_embedded",
+    uiOrigin: { navigate: "https://app.superblocks.com" },
+  },
+  agentInstructions:
+    "Call `check_app_progress` with this `applicationId` to follow the turn. Relay each new activity line to the user as it arrives.",
+};
+
+// The fields follow a hook input recorded in Claude Code. In both hosts the tool
+// result is the gateway's pretty-printed JSON inside a text content block.
+async function runGuidance(event, tool, value = {}) {
+  const input = {
+    session_id: "00000000-0000-4000-8000-000000000000",
+    hook_event_name: event,
+    ...(tool && {
+      tool_name: tool,
+      tool_input: { applicationId: APP_ID },
+      tool_response: [
+        { type: "text", text: `${JSON.stringify({ kind: "ok", value }, null, 2)}\n` },
+      ],
+    }),
+  };
+  const child = spawn("sh", [
+    fileURLToPath(repoFile("plugins/superblocks-plugin/hooks/guidance.sh")),
+  ]);
+  child.stdin.end(JSON.stringify(input));
+  let stdout = "";
+  child.stdout.on("data", (chunk) => (stdout += chunk));
+  const [code] = await once(child, "exit");
+  assert.equal(code, 0);
+  if (!stdout) return undefined;
+  const { hookSpecificOutput } = JSON.parse(stdout);
+  assert.equal(hookSpecificOutput.hookEventName, event);
+  return hookSpecificOutput.additionalContext;
+}
+
+test("plugin hooks run the guidance script at session start and after Cowork Superblocks calls", async () => {
+  const { hooks } = await readJson("plugins/superblocks-plugin/hooks/hooks.json");
+  const command = 'sh "${CLAUDE_PLUGIN_ROOT}/hooks/guidance.sh"';
+  assert.deepEqual(hooks.SessionStart, [{ hooks: [{ type: "command", command }] }]);
+  for (const event of ["PostToolUse", "PostToolUseFailure"]) {
+    const [{ matcher, hooks: entries }] = hooks[event];
+    assert.deepEqual(entries, [{ type: "command", command }]);
+    assert.match(`${COWORK_TOOL}get_app`, new RegExp(matcher));
+    assert.match(
+      "mcp__remote-devices__plugin_superblocks-local_superblocks__get_app",
+      new RegExp(matcher),
+    );
+    assert.doesNotMatch(`${CLAUDE_CODE_TOOL}get_app`, new RegExp(matcher));
+    assert.doesNotMatch(
+      "mcp__remote-devices__plugin_other_notsuperblocks__get_app",
+      new RegExp(matcher),
+    );
+  }
+});
+
+test("session start tells every Claude host how to send files and keep the build canvas", async () => {
+  const context = await runGuidance("SessionStart");
+  assert.match(context, /Do not create a Claude artifact or use the host's own file-upload UI/);
+  assert.match(
+    context,
+    /scratchpad path \(for example \/tmp\/claude-\.\.\.\/scratchpad\)[\s\S]*files: \[\{ path, content \}\] instead of filePath/,
+  );
+  assert.match(context, /Do not ask the user to restart Claude/);
+  assert.match(context, /Claude-in-Chrome is not a mid-turn canvas/);
+  assert.doesNotMatch(context, /browser pane|Page browser/);
+});
+
+test("Claude Code gets no Cowork browser pane guidance from any Superblocks result", async () => {
+  const results = [
+    ["start_app", { status: "building", browser: { canvas: { editUrl: EDIT_URL } } }],
+    [
+      "check_app_progress",
+      { status: "building", browserNavigation: { action: "open_editor", url: EDIT_URL } },
+    ],
+    ["get_app", { status: "ready", browserNavigation: { action: "open_editor", url: EDIT_URL } }],
+    ["build_app", { status: "ready", previewUrl: EDIT_URL }],
+    ["publish_app", { status: "publishing", publishDetailsUrl: EDIT_URL }],
+    ["create_integration", { integration_id: "i", integration_url: EDIT_URL }],
+    ["set_server", {}],
+  ];
+  for (const [name, value] of results) {
+    for (const event of ["PostToolUse", "PostToolUseFailure"]) {
+      assert.equal(await runGuidance(event, `${CLAUDE_CODE_TOOL}${name}`, value), undefined, name);
+      assert.equal(await runGuidance(event, `mcp__superblocks__${name}`, value), undefined, name);
+    }
+  }
+  assert.equal(
+    await runGuidance("PostToolUse", "mcp__remote-devices__Claude_Browser__navigate"),
+    undefined,
+  );
+});
+
+test("Cowork loads its browser pane tools and may open the editor while the build starts", async () => {
+  for (const name of ["start_app", "edit_app"]) {
+    const context = await runGuidance("PostToolUse", `${COWORK_TOOL}${name}`, START_APP_RESULT);
+    assert.match(
+      context,
+      /CRITICAL: load your browser pane tools now, before the first poll - call ToolSearch with query select:mcp__remote-devices__Claude_Browser__preview_start,mcp__remote-devices__Claude_Browser__navigate,mcp__remote-devices__Claude_Browser__tabs_context\./,
+    );
+    assert.match(
+      context,
+      /In Cowork's embedded Page browser, and only there, you may open this result's `browser\.canvas\.editUrl` now\./,
+    );
+    assert.match(context, /If that app is already open, do not reload it/);
+  }
+  const plugin = "mcp__remote-devices__plugin_superblocks-local_superblocks__start_app";
+  assert.match(
+    await runGuidance("PostToolUse", plugin, { status: "building" }),
+    /browser\.canvas\.editUrl/,
+  );
+});
+
+test("Cowork opens browserNavigation in its Page browser and checks the app loaded", async () => {
+  const navigation = { action: "open_editor", url: EDIT_URL };
+  const progress = await runGuidance("PostToolUse", `${COWORK_TOOL}check_app_progress`, {
+    status: "building",
+    browserNavigation: navigation,
+  });
+  assert.match(
+    progress,
+    /^CRITICAL DO NOT IGNORE: viewStatus is ready, before any other action, ensure the browserNavigation URL from this result is open in Cowork's embedded Page browser and verify the app loaded\./,
+  );
+  assert.match(progress, /Your automatic verification is a load check/);
+  const app = await runGuidance("PostToolUseFailure", `${COWORK_TOOL}get_app`, {
+    status: "ready",
+    browserNavigation: navigation,
+  });
+  assert.match(
+    app,
+    /^Before any other action, ensure the browserNavigation URL[\s\S]*verify the app loaded/,
+  );
+
+  const decide = await runGuidance("PostToolUse", `${COWORK_TOOL}check_app_progress`, {
+    pendingAction: "decide_in_editor",
+    browserNavigation: navigation,
+  });
+  assert.match(
+    decide,
+    /^CRITICAL DO NOT IGNORE: Before any other action, ensure the browserNavigation URL from this result is open in Cowork's embedded Page browser\./,
+  );
+  assert.doesNotMatch(decide, /verify the app loaded\. Your automatic/);
+
+  const withoutNavigation = await runGuidance("PostToolUse", `${COWORK_TOOL}check_app_progress`, {
+    status: "building",
+    agentInstructions: "When `browserNavigation` is present, follow its exact URL.",
+  });
+  assert.equal(withoutNavigation, undefined);
+});
+
+test("Cowork opens commit previews, publish details and integration setup in its browser pane", async () => {
+  assert.match(
+    await runGuidance("PostToolUse", `${COWORK_TOOL}build_app`, {
+      status: "ready",
+      previewUrl: EDIT_URL,
+    }),
+    /ensure the previewUrl from this result is open in Cowork's embedded Page browser and verify only that the commit preview loaded/,
+  );
+  assert.match(
+    await runGuidance("PostToolUse", `${COWORK_TOOL}get_preview_status`, { status: "ready" }),
+    /open the exact `previewUrl` from the original `build_app` result in Cowork's embedded Page browser/,
+  );
+  const publish = await runGuidance("PostToolUse", `${COWORK_TOOL}publish_app`, {
+    status: "publishing",
+    publishDetailsUrl: EDIT_URL,
+  });
+  assert.match(
+    publish,
+    /^On either successful status, open publishDetailsUrl automatically in the browser pane before the first check_publish_progress poll\./,
+  );
+  assert.match(
+    publish,
+    /ensure the publishDetailsUrl from this result is open in Cowork's embedded Page browser and verify the publish details loaded/,
+  );
+  assert.match(
+    await runGuidance("PostToolUse", `${COWORK_TOOL}check_publish_progress`, {
+      status: "deployed",
+      publishDetailsUrl: EDIT_URL,
+    }),
+    /^Before any other action, ensure the publishDetailsUrl/,
+  );
+
+  assert.equal(
+    await runGuidance("PostToolUse", `${COWORK_TOOL}create_integration`, {
+      integration_id: "i",
+      integration_url: "https://app.superblocks.com/integrations/i",
+    }),
+    "Open the exact returned integration_url in Cowork's browser pane side panel.",
+  );
+  assert.match(
+    await runGuidance("PostToolUse", `${COWORK_TOOL}create_integration`, {
+      integration_id: "i",
+      integration_url: `${EDIT_URL}?sb_integration_setup=i`,
+    }),
+    /side panel even if the app editor is already open\. That URL opens the Integrations tab inside the editor/,
+  );
+  assert.equal(
+    await runGuidance("PostToolUse", `${COWORK_TOOL}set_server`, {}),
+    "Continue in this Cowork task after success.",
+  );
+});
