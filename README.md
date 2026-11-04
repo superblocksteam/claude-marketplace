@@ -183,6 +183,22 @@ does not install or execute the new CLI.
 Exit zero means the dispatch was accepted, not that publication succeeded.
 Automation calling this command must observe the requested workflow's final result.
 
+The workflow also receives `cli-master-published` repository dispatches from the
+Superblocks master publishing pipeline:
+
+```json
+{
+  "event_type": "cli-master-published",
+  "client_payload": { "cli_version": "2.0.0-SNAPSHOT.aa736fe1dc9d8e89" }
+}
+```
+
+The receiver requires an exact `cli_version` matching the current npm `@master`
+tag. Stale events skip preparation, verification, and publication; missing or
+malformed versions fail before registry or Git access. Manual workflow runs and
+`npm run update:dev` still resolve the current tag. Repository dispatch runs on
+`main` and uses the same protected publication environment described above.
+
 The workflow prepares an immutable commit from the latest `master`, resolving the
 exact CLI version and refreshing its full dependency graph, pin, and branding without running
 package scripts. A separate runner verifies that commit, builds and smoke-tests
@@ -201,10 +217,19 @@ Configure `GH_PACKAGES_READ_TOKEN` for private package access and
 `CHANNEL_PUBLISH_TOKEN` only in the protected `channel-publication` environment
 configured above. Pin resolution uses isolated package
 manifests, disabled proxying, verified TLS, and no GitHub write token in the npm
-environment. Superblocks' master publish automation can keep invoking
-`npm run update:dev` with workflow-dispatch permission; publication status now lives
-in the requested workflow. Missing or expired publication credentials fail its preflight;
+environment. Superblocks' master publish automation can send the dispatch above
+or keep invoking `npm run update:dev` with workflow-dispatch permission. Publication
+status lives in the requested workflow. Missing or expired publication credentials fail its preflight;
 package preparation, verification, and publication have separate job results.
+The independent `notify-failure` job reports failed credential, preparation,
+verification, or publication jobs to the same Slack workflow used by the producer.
+Make `STAGING_SLACK_WEBHOOK_URL` available to this public repository as a repository
+secret or a selected organization secret. The Slack workflow must accept a `message`
+field. This secret is used only by the notification step, which checks out the
+workflow source rather than the prepared candidate and has no publication token.
+Successful updates, unchanged pins, stale events, and canceled runs send no alert.
+Missing webhook configuration or rejected delivery fails the notification job with
+setup or delivery diagnostics; the webhook URL and response body are never logged.
 If publication reports a moved tag or branch, choose **Re-run all jobs** or start a
 new **Update dev pin** run to prepare and verify a fresh candidate.
 Existing pin PRs against `main` belong to the old model
