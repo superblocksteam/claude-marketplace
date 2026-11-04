@@ -12,9 +12,8 @@ concurrency:
 jobs:
   credentials:
     uses: ./.github/workflows/publication-ready.yml
+    secrets: inherit
     if: github.ref == 'refs/heads/main'
-    secrets:
-      CHANNEL_PUBLISH_TOKEN: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
   prepare:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -36,7 +35,8 @@ jobs:
         id: prepare
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
-          PIN_COMMAND: ${{ github.event_name == 'repository_dispatch' && 'prepare-dispatch' || 'prepare' }}
+          PIN_COMMAND: ${{ github.event_name == 'repository_dispatch' &&
+            'prepare-dispatch' || 'prepare' }}
           CLI_VERSION: ${{ github.event.client_payload.cli_version }}
         run: node .github/scripts/dev-pin.mjs "$PIN_COMMAND" "$CLI_VERSION"
       - name: Export prepared commit
@@ -45,7 +45,8 @@ jobs:
           CANDIDATE: ${{ steps.prepare.outputs.commit }}
         run: 'git update-ref refs/heads/dev-pin-candidate "$CANDIDATE"
 
-          git bundle create "$RUNNER_TEMP/candidate.bundle" refs/heads/dev-pin-candidate'
+          git bundle create "$RUNNER_TEMP/candidate.bundle"
+          refs/heads/dev-pin-candidate'
       - name: Upload prepared commit
         if: steps.prepare.outputs.changed == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

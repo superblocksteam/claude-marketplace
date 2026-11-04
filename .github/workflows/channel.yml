@@ -17,20 +17,14 @@ name: Channel
       upload:
         type: boolean
         default: false
-    secrets:
-      github-packages-token:
-        required: false
-      CHANNEL_PUBLISH_TOKEN:
-        required: false
     outputs:
       commit:
         value: ${{ jobs.build.outputs.commit }}
 jobs:
   credentials:
     uses: ./.github/workflows/publication-ready.yml
+    secrets: inherit
     if: inputs.forward-from != ''
-    secrets:
-      CHANNEL_PUBLISH_TOKEN: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
   build:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
@@ -54,7 +48,7 @@ jobs:
         if: inputs.forward-from != ''
         env:
           SOURCE_SHA: ${{ inputs.forward-from }}
-          NODE_AUTH_TOKEN: ${{ secrets.github-packages-token }}
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
         run: node .github/scripts/channel.mjs prepare "$CHANNEL" "$SOURCE_SHA"
       - name: Check out the candidate
         if: inputs.forward-from != ''
@@ -66,7 +60,7 @@ jobs:
         run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Verify locked dependencies, tests, packaging, and MCP startup
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.github-packages-token }}
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
         run: node .github/scripts/channel.mjs verify "$CHANNEL" "$DIST"
       - name: Refuse public artifacts for private channels
         if: inputs.upload
