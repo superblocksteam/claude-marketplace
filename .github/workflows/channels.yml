@@ -20,8 +20,7 @@ jobs:
       channel:
         ${{ (github.base_ref || github.ref_name) == 'master' && 'dev' || (github.base_ref || github.ref_name)
         == 'next' && 'next' || 'beta' }}
-    secrets:
-      github-packages-token: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+    secrets: inherit
     concurrency:
       group: channels-check-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -32,6 +31,7 @@ jobs:
     with:
       channel: next
       forward-from: ${{ github.sha }}
+    secrets: inherit
     concurrency:
       group: channel-promotion-next
       cancel-in-progress: false
@@ -42,8 +42,7 @@ jobs:
     with:
       channel: dev
       forward-from: ${{ github.sha }}
-    secrets:
-      github-packages-token: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+    secrets: inherit
     concurrency:
       group: channel-promotion-dev
       cancel-in-progress: false
