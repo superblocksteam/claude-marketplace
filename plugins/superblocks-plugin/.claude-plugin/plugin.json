@@ -1,12 +1,16 @@
 {
   "name": "superblocks",
   "displayName": "Superblocks (dev)",
-  "description": "Build, import, and manage Superblocks applications from Claude. Browser sign-in opens automatically.",
+  "description": "Build, import, and manage Superblocks applications from Claude with browser sign-in.",
   "author": {
     "name": "Superblocks",
     "url": "https://www.superblocks.com"
   },
   "homepage": "https://www.superblocks.com",
   "skills": "./skills/",
-  "version": "0.0.0-dev.g8cf552dfae2f.cli-2.0.0-SNAPSHOT.9503ca5d334b83ae"
+  "version": "0.0.0-dev.hd4983642675e.cli-2.0.0-SNAPSHOT.9503ca5d334b83ae",
+  "repository": "https://github.com/superblocksteam/claude-marketplace",
+  "documentationUrl": "https://docs.superblocks.com/",
+  "privacyPolicyUrl": "https://www.superblocks.com/legal/privacy",
+  "termsOfServiceUrl": "https://www.superblocks.com/legal/terms"
 }

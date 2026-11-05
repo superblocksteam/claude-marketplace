@@ -1,0 +1,16 @@
+name: Check channel publication credential
+"on":
+  workflow_call: {}
+permissions: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Authenticate publication credential with a repository read request
+        env:
+          GH_TOKEN: ${{ secrets.CHANNEL_PUBLISH_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "Configure CHANNEL_PUBLISH_TOKEN only in the protected channel-publication environment with contents and workflows write permissions before running channel publication." >&2; exit 1; }
+          gh api --method GET "repos/$GITHUB_REPOSITORY" --silent || { echo "CHANNEL_PUBLISH_TOKEN could not authenticate a repository read request. Check expiration and repository access. This preflight does not verify write permissions or branch rules." >&2; exit 1; }
+    environment: channel-publication

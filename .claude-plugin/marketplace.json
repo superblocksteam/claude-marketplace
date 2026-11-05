@@ -11,12 +11,12 @@
         "name": "Superblocks",
         "url": "https://www.superblocks.com"
       },
-      "description": "Build, import, and manage Superblocks applications from Claude. Browser sign-in opens automatically.",
+      "description": "Build, import, and manage Superblocks applications from Claude with browser sign-in.",
       "displayName": "Superblocks (dev)",
       "homepage": "https://www.superblocks.com",
       "name": "superblocks",
       "source": "./plugins/superblocks-plugin",
-      "version": "0.0.0-dev.g8cf552dfae2f.cli-2.0.0-SNAPSHOT.9503ca5d334b83ae"
+      "version": "0.0.0-dev.hd4983642675e.cli-2.0.0-SNAPSHOT.9503ca5d334b83ae"
     }
   ]
 }
