@@ -1,6 +1,9 @@
 name: Update dev pin
 "on":
   workflow_dispatch: {}
+  repository_dispatch:
+    types:
+      - cli-master-published
 permissions:
   contents: read
 concurrency:
@@ -32,7 +35,9 @@ jobs:
         id: prepare
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
-        run: node .github/scripts/dev-pin.mjs prepare
+          PIN_COMMAND: ${{ github.event_name == 'repository_dispatch' && 'prepare-dispatch' || 'prepare' }}
+          CLI_VERSION: ${{ github.event.client_payload.cli_version }}
+        run: node .github/scripts/dev-pin.mjs "$PIN_COMMAND" "$CLI_VERSION"
       - name: Export prepared commit
         if: steps.prepare.outputs.changed == 'true'
         env:
@@ -105,3 +110,28 @@ jobs:
           CANDIDATE: ${{ needs.prepare.outputs.commit }}
         run: node .github/scripts/dev-pin.mjs publish "$CANDIDATE"
     environment: channel-publication
+  notify-failure:
+    needs:
+      - credentials
+      - prepare
+      - verify
+      - publish
+    if: ${{ always() && !cancelled() && contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: .github/scripts/notify-dev-pin-failure.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Notify dev pin update failure
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.STAGING_SLACK_WEBHOOK_URL }}
+        run: node .github/scripts/notify-dev-pin-failure.mjs

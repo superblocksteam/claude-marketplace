@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -49,6 +49,35 @@ test("the local dev update only requests the isolated workflow", (t) => {
   assert.match(publish.stderr, /Configure CHANNEL_PUBLISH_TOKEN/);
 });
 
+test("dispatch rejects malformed versions before registry or Git access", () => {
+  const update = new DevPinUpdate("/nonexistent-dispatch-checkout");
+  for (const version of [
+    undefined,
+    null,
+    "",
+    "master",
+    "^1.0.2",
+    "1.0.2\n",
+    ["1.0.2"],
+    "$(touch /tmp/untrusted)",
+  ]) {
+    assert.throws(() => update.prepareDispatch(version), /Invalid CLI version/);
+    const result = spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL("../.github/scripts/dev-pin.mjs", import.meta.url)),
+        "prepare-dispatch",
+        ...(version === undefined
+          ? []
+          : [typeof version === "string" ? version : JSON.stringify(version)]),
+      ],
+      { env: { ...process.env, PATH: "" }, encoding: "utf8" },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Invalid CLI version/);
+  }
+});
+
 test("dev prepares an immutable pin, verifies it separately, and publishes without executing the CLI", (t) => {
   const directory = mkdtempSync(join(tmpdir(), "superblocks-dev-update-"));
   const environment = { ...process.env };
@@ -81,6 +110,11 @@ test("dev prepares an immutable pin, verifies it separately, and publishes witho
       typeof value === "string" ? value : JSON.stringify(value, null, 2) + "\n",
     );
   };
+  cpSync(
+    fileURLToPath(new URL("../.github/scripts", import.meta.url)),
+    join(checkout, ".github/scripts"),
+    { recursive: true },
+  );
   write("package.json", { private: true });
   write("README.md", "tracked documentation\n");
   write(`${plugin}/package.json`, { dependencies: { "@superblocksteam/cli": "1.0.0" } });
@@ -234,8 +268,33 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
     return git("rev-parse", "FETCH_HEAD");
   };
   const update = new DevPinUpdate(checkout);
-  const publish = () => {
-    const candidate = update.prepare();
+  const prepareDispatch = (version) => {
+    const outputFile = join(directory, "dispatch-output");
+    writeFileSync(outputFile, "");
+    const output = execFileSync(
+      process.execPath,
+      [join(checkout, ".github/scripts/dev-pin.mjs"), "prepare-dispatch", version],
+      {
+        env: { ...process.env, GITHUB_OUTPUT: outputFile },
+        encoding: "utf8",
+      },
+    );
+    console.log(
+      "Dispatch process observed:",
+      version,
+      output.trim(),
+      readFileSync(outputFile, "utf8"),
+    );
+    const result = JSON.parse(output.trim().split("\n").at(-1));
+    assert.equal(
+      readFileSync(outputFile, "utf8"),
+      `commit=${result.commit ?? ""}\nchanged=${result.changed}\n`,
+    );
+    return result;
+  };
+  const publish = (requestedVersion) => {
+    const candidate =
+      requestedVersion === undefined ? update.prepare() : prepareDispatch(requestedVersion);
     if (!candidate.changed) return `master already pins ${candidate.version}`;
     const bundle = join(directory, "candidate.bundle");
     git("update-ref", "refs/heads/dev-pin-candidate", candidate.commit);
@@ -274,7 +333,18 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
     return result;
   };
   state({ version: "1.0.1" });
-  const prepared = update.prepare();
+  const stale = prepareDispatch("1.0.0");
+  assert.equal(stale.changed, false);
+  assert.equal(tip(), main);
+  assert.ok(
+    readFileSync(callsFile, "utf8")
+      .trim()
+      .split("\n")
+      .map(JSON.parse)
+      .every(({ args }) => args[0] === "view"),
+  );
+  console.log("Stale dispatch observed:", JSON.stringify(stale), "master:", tip());
+  const prepared = prepareDispatch("1.0.1");
   assert.equal(prepared.changed, true);
   assert.equal(tip(), main);
   assert.ok(
@@ -287,7 +357,7 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
           command === "npm" && ["view", "install", "update", "ci"].includes(args[0]),
       ),
   );
-  assert.match(publish(), /master now pins 1\.0\.1/);
+  assert.match(publish("1.0.1"), /master now pins 1\.0\.1/);
   const published = tip();
   assert.equal(
     JSON.parse(git("show", `${published}:${plugin}/package.json`)).dependencies[

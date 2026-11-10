@@ -7,13 +7,13 @@ import { DevPinUpdate } from "./update-dev-pin.mjs";
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const update = new DevPinUpdate(root);
 const [command, commit, destination] = process.argv.slice(2);
-if (command === "prepare") {
-  const result = update.prepare();
+if (command === "prepare" || command === "prepare-dispatch") {
+  const result = command === "prepare-dispatch" ? update.prepareDispatch(commit) : update.prepare();
   console.log(JSON.stringify(result));
   if (process.env.GITHUB_OUTPUT)
     appendFileSync(
       process.env.GITHUB_OUTPUT,
-      `commit=${result.commit}\nchanged=${result.changed}\n`,
+      `commit=${result.commit ?? ""}\nchanged=${result.changed}\n`,
     );
 } else if (command === "verify" && commit && destination) {
   update.verify(commit, resolve(destination));
@@ -22,5 +22,7 @@ if (command === "prepare") {
     throw new Error("Configure CHANNEL_PUBLISH_TOKEN with contents write permission.");
   console.log(update.publish(commit));
 } else {
-  throw new Error("Usage: node dev-pin.mjs <prepare|verify|publish> [commit] [destination]");
+  throw new Error(
+    "Usage: node dev-pin.mjs <prepare|prepare-dispatch|verify|publish> [version-or-commit] [destination]",
+  );
 }
