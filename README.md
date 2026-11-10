@@ -216,7 +216,7 @@ Run **Actions > Release Cowork plugin > Run workflow** from `main` and choose
 `next` or `beta`. The workflow runs on the Namespace macOS profile and creates
 a draft prerelease with two assets from the selected channel's branch:
 
-- A Cowork plugin ZIP containing the MCPB and configure skill.
+- A Cowork plugin ZIP containing the MCPB, the configure skill and the hooks.
 - A standalone MCPB for Claude Desktop's local MCP extensions.
 
 `dev` has no Cowork release: the archives preinstall the CLI, so a public

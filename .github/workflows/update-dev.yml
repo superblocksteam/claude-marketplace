@@ -9,6 +9,7 @@ concurrency:
 jobs:
   credentials:
     uses: ./.github/workflows/publication-ready.yml
+    secrets: inherit
     if: github.ref == 'refs/heads/main'
   prepare:
     if: github.ref == 'refs/heads/main'

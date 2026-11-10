@@ -109,6 +109,11 @@ process.on("SIGTERM", () => process.exit(0));
   );
   assert.ok(files.includes(".claude-plugin/plugin.json"));
   assert.ok(files.includes("skills/configure/SKILL.md"));
+  assert.ok(
+    files.includes("hooks/hooks.json"),
+    "The install archive must include the plugin hooks",
+  );
+  assert.ok(files.includes("hooks/guidance.sh"));
   assert.ok(files.includes("README.md"), "The install archive must include the plugin README");
   assert.ok(files.includes("LICENSE"), "The install archive must include the plugin license");
   assert.ok(
@@ -154,6 +159,25 @@ process.on("SIGTERM", () => process.exit(0));
   assert.equal(manifest.displayName, "Superblocks (next)");
   const runtime = join(extracted, "runtime");
   const bundle = JSON.parse(readFileSync(join(runtime, "manifest.json")));
+  // Only the Cowork copy says the host collects approvals itself. The standalone
+  // bundle can be installed in Claude Desktop chat, and Claude Code reads .mcp.json.
+  assert.equal(bundle.server.mcp_config.env.GATEWAY_HOST_COLLECTS_APPROVALS, "true");
+  const standalone = JSON.parse(
+    execFileSync(
+      "python3",
+      [
+        "-c",
+        "import sys,zipfile; print(zipfile.ZipFile(sys.argv[1]).read('manifest.json').decode())",
+        join(output, `${stem}.mcpb`),
+      ],
+      { encoding: "utf8" },
+    ),
+  );
+  assert.equal("GATEWAY_HOST_COLLECTS_APPROVALS" in standalone.server.mcp_config.env, false);
+  const pluginServers = JSON.parse(readFileSync(join(plugin, ".mcp.json"), "utf8")).mcpServers;
+  for (const server of Object.values(pluginServers)) {
+    assert.equal("GATEWAY_HOST_COLLECTS_APPROVALS" in (server.env ?? {}), false);
+  }
   assert.equal(bundle.compatibility.runtimes.node, ">=24");
   assert.deepEqual(bundle.compatibility.platforms, [process.platform]);
   assert.equal(bundle.display_name, "Superblocks (next)");

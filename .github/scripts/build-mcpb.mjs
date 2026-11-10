@@ -134,6 +134,15 @@ try {
   if (!(await packExtension({ extensionPath: bundle, outputPath: bundlePath, silent: false }))) {
     throw new Error("MCPB packing failed; see the packer output above.");
   }
+  // Cowork asks the user with its own question form and sends the answer back,
+  // so its copy tells the MCP to accept that answer for the decision it showed.
+  // The standalone bundle leaves this off, so Claude Desktop chat keeps its card.
+  manifest.server.mcp_config.env.GATEWAY_HOST_COLLECTS_APPROVALS = "true";
+  writeFileSync(join(bundle, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  const coworkBundle = join(directory, "cowork.mcpb");
+  if (!(await packExtension({ extensionPath: bundle, outputPath: coworkBundle, silent: false }))) {
+    throw new Error("Cowork MCPB packing failed; see the packer output above.");
+  }
   mkdirSync(join(cowork, ".claude-plugin"), { recursive: true });
   writeFileSync(
     join(cowork, ".claude-plugin/plugin.json"),
@@ -141,9 +150,10 @@ try {
   );
   cpSync(icon, join(cowork, ".claude-plugin/icon.png"));
   cpSync(join(plugin, "skills"), join(cowork, "skills"), { recursive: true });
+  cpSync(join(plugin, "hooks"), join(cowork, "hooks"), { recursive: true });
   cpSync(join(plugin, "README.md"), join(cowork, "README.md"));
   cpSync(join(plugin, "LICENSE"), join(cowork, "LICENSE"));
-  cpSync(bundlePath, join(cowork, "superblocks.mcpb"), { mode: constants.COPYFILE_FICLONE });
+  cpSync(coworkBundle, join(cowork, "superblocks.mcpb"), { mode: constants.COPYFILE_FICLONE });
   execFileSync(
     "python3",
     [
