@@ -1,7 +1,7 @@
 # Superblocks
 
 Build, import, and manage Superblocks applications from Claude. Connect to your
-Superblocks account to create apps, edit them with Clark, work with integrations,
+Superblocks account to create apps, edit them with Superblocks, work with integrations,
 and publish apps using the permissions of your signed-in account.
 
 ## Requirements and supported apps
@@ -47,6 +47,11 @@ The plugin starts `scripts/launch-mcp.mjs` with Node.js. It runs the installed
 input and output. The exact CLI version and its dependencies are recorded in
 `package.json` and `package-lock.json`; startup does not install packages.
 
+The plugin also runs `hooks/guidance.sh` with `sh` when a session starts and
+after each Superblocks tool call in Cowork. It only adds Superblocks usage
+instructions to Claude's context, such as opening the editor in Cowork's
+browser pane. It reads no files and makes no network requests.
+
 Tool calls send the inputs needed for the requested operation to your selected
 Superblocks deployment and its services. These can include prompts, application
 source files, integration configuration, and application or query data. Tool
@@ -88,5 +93,5 @@ Learn more in the
 
 ## License
 
-This plugin uses the [Superblocks Community Software License](LICENSE), matching
+This plugin uses the [Superblocks Community License Agreement](LICENSE), matching
 the license distributed with the Superblocks CLI.

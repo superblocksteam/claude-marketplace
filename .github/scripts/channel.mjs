@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,10 +9,11 @@ const root = fileURLToPath(new URL("../..", import.meta.url));
 const commands = {
   pin: (channel, spec = channel.distTag) => {
     channel.pinTo(root, spec);
-    channel.brand(
-      root,
-      execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
-    );
+    channel.brand(root);
+  },
+  version: (channel) => {
+    channel.assertCurrent(root);
+    channel.brand(root);
   },
   install: (channel, pluginDirectory) => channel.install(resolve(pluginDirectory)),
   marketplace: (channel, destination) =>
@@ -35,7 +35,7 @@ const commands = {
 const [command, name, ...args] = process.argv.slice(2);
 if (!Object.hasOwn(commands, command) || !name) {
   throw new Error(
-    "Usage: node channel.mjs <pin|install|marketplace|verify|assert-public|prepare|publish> <channel> [arguments]",
+    "Usage: node channel.mjs <pin|version|install|marketplace|verify|assert-public|prepare|publish> <channel> [arguments]",
   );
 }
 commands[command](Channel.named(name), ...args);

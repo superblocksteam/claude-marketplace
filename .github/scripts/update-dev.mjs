@@ -1,21 +1,18 @@
-import { appendFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
-import { DevPinDispatch } from "./dev-pin.mjs";
-import { DevPinUpdate } from "./update-dev-pin.mjs";
-
-const root = fileURLToPath(new URL("../..", import.meta.url));
-const [command, ...args] = process.argv.slice(2);
-const update = new DevPinDispatch(root);
-if (!command) console.log(new DevPinUpdate().publish());
-else if (command === "prepare" && args.length === 1) {
-  const result = update.prepare(...args);
-  console.log(JSON.stringify(result));
-  if (process.env.GITHUB_OUTPUT)
-    appendFileSync(
-      process.env.GITHUB_OUTPUT,
-      `changed=${result.changed}\nsource_sha=${result.sourceSha}\npin_digest=${result.pinDigest || ""}\n`,
-    );
-} else if (command === "publish" && args.length === 2)
-  console.log(JSON.stringify(update.publish(...args)));
-else throw new Error("Usage: node update-dev.mjs [prepare VERSION|publish VERSION DIGEST]");
+execFileSync(
+  "gh",
+  [
+    "workflow",
+    "run",
+    "update-dev.yml",
+    "--repo",
+    "superblocksteam/claude-marketplace",
+    "--ref",
+    "main",
+  ],
+  { stdio: "inherit" },
+);
+console.log(
+  "Dev pin update requested. Follow https://github.com/superblocksteam/claude-marketplace/actions/workflows/update-dev.yml for verification and publication.",
+);

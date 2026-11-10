@@ -9,7 +9,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, posix } from "node:path";
+
+import { LockedDependencies } from "./locked-dependencies.mjs";
+import { PluginVersion } from "./plugin-version.mjs";
 
 const PUBLIC_NPM = "https://registry.npmjs.org/";
 const GITHUB_PACKAGES = "https://npm.pkg.github.com/";
@@ -104,20 +107,76 @@ export class Channel {
       throw new Error("The plugin package and lockfile must pin the same exact CLI version.");
     }
     for (const [path, entry] of Object.entries(lock.packages)) {
-      if (!path) continue;
-      const name = path.split("node_modules/").at(-1);
-      const expected =
-        !this.isPublic && name.startsWith("@superblocksteam/") ? GITHUB_PACKAGES : PUBLIC_NPM;
-      if (
-        entry.link ||
-        (entry.resolved && new URL(entry.resolved).origin !== new URL(expected).origin)
-      ) {
-        throw new Error(
-          `Unexpected package registry for ${path}; expected ${new URL(expected).origin}, got ${entry.resolved ? new URL(entry.resolved).origin : "link"}.`,
-        );
-      }
+      this.#assertPackageSource(path, entry, lock);
     }
     return spec;
+  }
+
+  #assertPackageSource(path, entry, lock) {
+    if (!path) return;
+    const installedName = path.split("node_modules/").at(-1);
+    const name = entry.name ?? installedName;
+    if (
+      name !== installedName &&
+      (installedName.startsWith("@superblocksteam/") || !this.#hasAlias(lock, path, name))
+    )
+      throw new Error(
+        `Unexpected package alias for ${path}: expected ${installedName}, found ${name}; no permitted matching alias declarations.`,
+      );
+    if (typeof entry.resolved !== "string" || !entry.resolved)
+      throw new Error(
+        `Missing package tarball URL for ${path}; regenerate and review the lockfile.`,
+      );
+    const registry = name.startsWith("@superblocksteam/") ? this.registry : PUBLIC_NPM;
+    const url = new URL(entry.resolved);
+    if (url.origin !== new URL(registry).origin || url.username || url.password)
+      throw new Error(
+        `Unexpected package registry for ${path}: expected ${new URL(registry).origin}, found ${url.origin}; URL userinfo ${url.username || url.password ? "present (forbidden)" : "absent"}.`,
+      );
+    const pathname = decodeURIComponent(url.pathname);
+    const publicPath = `/${name}/-/${name.split("/").at(-1)}-${entry.version}.tgz`;
+    const privatePrefix = `/download/${name}/${entry.version}/`;
+    const matches =
+      registry === PUBLIC_NPM
+        ? pathname === publicPath
+        : pathname.startsWith(privatePrefix) &&
+          /^[0-9a-f]{40}$/.test(pathname.slice(privatePrefix.length));
+    if (!matches || url.search || url.hash)
+      throw new Error(
+        `Unexpected package tarball for ${path}: expected ${registry === PUBLIC_NPM ? publicPath : `${privatePrefix}<40 lowercase hex characters>`}; found path match ${matches} (actual path redacted), query ${url.search ? "present (forbidden)" : "absent"}, fragment ${url.hash ? "present (forbidden)" : "absent"}.`,
+      );
+  }
+
+  #hasAlias(lock, path, name) {
+    const installedName = path.split("node_modules/").at(-1);
+    const references = [];
+    for (const [parent, entry] of Object.entries(lock.packages)) {
+      const specs = [entry.dependencies, entry.optionalDependencies, entry.devDependencies]
+        .map((dependencies) => dependencies?.[installedName])
+        .filter((spec) => spec !== undefined);
+      if (!specs.length || this.#dependencyPath(lock, parent, installedName) !== path) continue;
+      if (new Set(specs).size !== 1) return false;
+      references.push(specs[0]);
+    }
+    const prefix = `npm:${name}@`;
+    return (
+      references.length > 0 &&
+      references.every(
+        (spec) =>
+          typeof spec === "string" && spec.startsWith(prefix) && spec.length > prefix.length,
+      )
+    );
+  }
+
+  #dependencyPath(lock, parent, name) {
+    let directory = parent;
+    while (true) {
+      const path = posix.join(directory, "node_modules", name);
+      if (Object.hasOwn(lock.packages, path)) return path;
+      if (!directory || directory === ".") return undefined;
+      directory = posix.dirname(directory);
+      if (posix.basename(directory) === "node_modules") directory = posix.dirname(directory);
+    }
   }
 
   npmArgs() {
@@ -149,50 +208,30 @@ export class Channel {
       env[`NPM_CONFIG_${name.toUpperCase()}`] = value;
     }
     if (this.isPublic) delete env.NODE_AUTH_TOKEN;
-    const npmrc = join(directory, "npmrc");
-    writeFileSync(
-      npmrc,
-      this.isPublic ? "" : "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n",
-      { mode: 0o600 },
-    );
-    env.NPM_CONFIG_USERCONFIG = npmrc;
-    env.npm_config_userconfig = npmrc;
+    if (this.isPublic || env.NODE_AUTH_TOKEN) {
+      const npmrc = join(directory, "npmrc");
+      writeFileSync(
+        npmrc,
+        this.isPublic ? "" : "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n",
+        { mode: 0o600 },
+      );
+      env.NPM_CONFIG_USERCONFIG = npmrc;
+      env.npm_config_userconfig = npmrc;
+    }
     try {
       return callback(directory, env);
+    } catch (error) {
+      if (!this.isPublic && Number.isInteger(error?.status) && error.status !== 0)
+        console.error(
+          "Private package operation failed. For npm 401/403/404 errors, check GH_PACKAGES_READ_TOKEN (NODE_AUTH_TOKEN), token expiration, read:packages/SSO access, and package/version availability. Local runs can use npm login --registry=https://npm.pkg.github.com --auth-type=legacy.",
+        );
+      throw error;
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
   }
 
-  latestVersion(environment = process.env) {
-    return this.withNpm((cwd, env) => {
-      const output = execFileSync(
-        "npm",
-        [
-          "view",
-          `@superblocksteam/cli@${this.distTag}`,
-          "version",
-          "--json",
-          "--prefer-online",
-          ...this.npmArgs(),
-        ],
-        { cwd, env, encoding: "utf8" },
-      );
-      let version;
-      try {
-        version = JSON.parse(output);
-      } catch (cause) {
-        throw new Error(`npm view @superblocksteam/cli@${this.distTag} returned invalid JSON.`, {
-          cause,
-        });
-      }
-      if (!Channel.isExactVersion(version))
-        throw new Error(`Invalid CLI version: ${JSON.stringify(version)}`);
-      return version;
-    }, environment);
-  }
-
-  pinTo(root, spec = this.distTag, environment = process.env) {
+  pinTo(root, spec = this.distTag, reviewedLock) {
     this.assertCurrent(root);
     if (spec !== this.distTag && !Channel.isExactVersion(spec))
       throw new Error(`Invalid CLI version: ${JSON.stringify(spec)}`);
@@ -200,6 +239,11 @@ export class Channel {
       const pin = this.pinDirectory(directory);
       mkdirSync(pin, { recursive: true });
       for (const file of PIN_FILES) cpSync(join(this.pinDirectory(root), file), join(pin, file));
+      const original = new LockedDependencies(
+        readJson(join(pin, "package-lock.json")),
+        readJson(join(pin, "package.json")).overrides,
+        reviewedLock,
+      );
       execFileSync(
         "npm",
         [
@@ -211,16 +255,43 @@ export class Channel {
         ],
         { cwd: pin, env, stdio: "inherit" },
       );
-      execFileSync("npm", ["update", "--package-lock-only", ...this.npmArgs()], {
-        cwd: pin,
-        env,
-        stdio: "inherit",
-      });
+      const overrides = [...original.overrides.keys()];
+      if (overrides.length)
+        execFileSync("npm", ["update", ...overrides, "--package-lock-only", ...this.npmArgs()], {
+          cwd: pin,
+          env,
+          stdio: "inherit",
+        });
       const version = this.cliVersion(directory);
       if (Channel.isExactVersion(spec) && version !== spec)
         throw new Error(`CLI pin does not match the requested version ${spec}.`);
+      if (reviewedLock) {
+        const updatedLock = readJson(join(pin, "package-lock.json"));
+        original.constrain(updatedLock, version);
+        original.assertUpdate(updatedLock, version);
+        writeJson(join(pin, "package-lock.json"), updatedLock);
+      }
+      this.#assertInstallable(pin, env, Boolean(reviewedLock));
       for (const file of PIN_FILES) cpSync(join(pin, file), join(this.pinDirectory(root), file));
-    }, environment);
+    });
+  }
+
+  #assertInstallable(directory, env, constrained) {
+    try {
+      execFileSync("npm", ["ci", "--dry-run", ...this.npmArgs()], {
+        cwd: directory,
+        env,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      if (constrained && /\bEUSAGE\b/.test(error.stderr ?? ""))
+        throw new Error(
+          "Unreviewed dependency change required by this CLI pin. Update the lockfile in a reviewed PR.",
+          { cause: error },
+        );
+      throw error;
+    }
   }
 
   install(pluginDirectory) {
@@ -233,10 +304,22 @@ export class Channel {
     });
   }
 
-  brand(root, sourceSha) {
+  assertVersion(root) {
+    if (this.isMain) return;
+    const version = new PluginVersion(root, this.name, this.cliVersion(root)).value();
+    const entry = readJson(join(root, MARKETPLACE)).plugins.find(
+      (plugin) => plugin.name === "superblocks",
+    );
+    if (readJson(join(root, MANIFEST)).version !== version || entry?.version !== version)
+      throw new Error(
+        `Plugin version is stale; run node .github/scripts/channel.mjs version ${this.name} and commit both manifests.`,
+      );
+  }
+
+  brand(root) {
     if (this.isMain) return;
     const manifest = readJson(join(root, MANIFEST));
-    const version = `0.0.0-${this.name}.g${sourceSha.slice(0, 12)}.cli-${this.cliVersion(root)}`;
+    const version = new PluginVersion(root, this.name, this.cliVersion(root)).value();
     const displayName = this.displayName(manifest.displayName);
     writeJson(join(root, MANIFEST), { ...manifest, displayName, version });
     const marketplace = readJson(join(root, MARKETPLACE));
@@ -250,14 +333,15 @@ export class Channel {
   verify(root, destination) {
     this.assertCurrent(root);
     this.cliVersion(root);
-    this.withNpm((_, env) => {
+    this.assertVersion(root);
+    Channel.named("beta").withNpm((_, env) => {
       const run = (command, args, extra = {}) =>
         execFileSync(command, args, { cwd: root, env, stdio: "inherit", ...extra });
       run("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund", `--registry=${PUBLIC_NPM}`]);
       run("npm", ["test"]);
       const tree = join(destination, "marketplace");
       new ChannelMarketplace(this, root).write(tree);
-      run("npm", ["ci", ...this.npmArgs()], { cwd: join(tree, PLUGIN) });
+      this.install(join(tree, PLUGIN));
       run(process.execPath, ["--test", "tests/installed/dependency-security.test.mjs"], {
         env: { ...env, TEST_PLUGIN_DIRECTORY: join(tree, PLUGIN) },
       });
