@@ -1,5 +1,3 @@
-/** Runs the prepare, verify, and publish steps of the dev CLI pin workflow. */
-
 import { appendFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,7 +13,7 @@ if (command === "prepare" || command === "prepare-dispatch") {
   if (process.env.GITHUB_OUTPUT)
     appendFileSync(
       process.env.GITHUB_OUTPUT,
-      `commit=${result.commit ?? ""}\nchanged=${result.changed}\nversion=${result.version}\n`,
+      `commit=${result.commit ?? ""}\nchanged=${result.changed}\n`,
     );
 } else if (command === "verify" && commit && destination) {
   update.verify(commit, resolve(destination));

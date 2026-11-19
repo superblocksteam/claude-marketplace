@@ -22,7 +22,6 @@ jobs:
       commit: ${{ steps.prepare.outputs.commit }}
       changed: ${{ steps.prepare.outputs.changed }}
       artifact: dev-pin-candidate-${{ github.run_attempt }}
-      version: ${{ steps.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -119,7 +118,7 @@ jobs:
       - publish
     if: ${{ always() && !cancelled() && contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 2
     permissions:
       contents: read
     steps:
@@ -135,10 +134,4 @@ jobs:
       - name: Notify dev pin update failure
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.STAGING_SLACK_WEBHOOK_URL }}
-          CREDENTIALS_RESULT: ${{ needs.credentials.result }}
-          PREPARE_RESULT: ${{ needs.prepare.result }}
-          VERIFY_RESULT: ${{ needs.verify.result }}
-          PUBLISH_RESULT: ${{ needs.publish.result }}
-          PREPARED_CLI_VERSION: ${{ needs.prepare.outputs.version }}
-          DISPATCH_CLI_VERSION: ${{ github.event.client_payload.cli_version }}
         run: node .github/scripts/notify-dev-pin-failure.mjs
