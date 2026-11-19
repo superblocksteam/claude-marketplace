@@ -227,11 +227,14 @@ Make `STAGING_SLACK_WEBHOOK_URL` available to this public repository as a reposi
 secret or a selected organization secret. The Slack workflow must accept a `message`
 field. This secret is used only by the notification step, which checks out the
 workflow source rather than the prepared candidate and has no publication token.
+Alerts identify the failed jobs, trigger, and CLI version when available.
+The notifier retries transient delivery failures within the job deadline.
 Successful updates, unchanged pins, stale events, and canceled runs send no alert.
-Missing webhook configuration or rejected delivery fails the notification job with
-setup or delivery diagnostics; the webhook URL and response body are never logged.
-If publication reports a moved tag or branch, choose **Re-run all jobs** or start a
-new **Update dev pin** run to prepare and verify a fresh candidate.
+Missing webhook configuration or exhausted delivery attempts fail the notification
+job with sanitized diagnostics.
+After fixing a failed repository dispatch, start a new **Update dev pin** run on
+`main` to prepare and verify the current tag. For a failed manual run, you can
+also choose **Re-run all jobs**.
 Existing pin PRs against `main` belong to the old model
 and should be closed without merging.
 

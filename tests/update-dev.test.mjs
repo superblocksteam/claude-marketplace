@@ -288,7 +288,7 @@ if (state.rollbackDuringSmoke) execFileSync("git", ["--git-dir", state.origin, "
     const result = JSON.parse(output.trim().split("\n").at(-1));
     assert.equal(
       readFileSync(outputFile, "utf8"),
-      `commit=${result.commit ?? ""}\nchanged=${result.changed}\n`,
+      `commit=${result.commit ?? ""}\nchanged=${result.changed}\nversion=${version}\n`,
     );
     return result;
   };
