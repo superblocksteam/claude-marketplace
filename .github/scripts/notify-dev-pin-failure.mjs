@@ -23,10 +23,17 @@ class DevPinFailure {
       throw new Error("Dev pin failure notification could not be delivered. Check webhook access.");
 
     const body = JSON.stringify({ message: this.#message() });
+    const attempts = RETRY_DELAYS_MS.length + 1;
+    let attempt = 0;
     for (const delay of [...RETRY_DELAYS_MS, undefined]) {
+      attempt += 1;
       const delivery = await this.#post(webhook, body);
       if (delivery.ok) return;
-      if (delay === undefined || !delivery.retryable) throw new Error(delivery.error);
+      const final = delay === undefined || !delivery.retryable;
+      console.error(
+        `Delivery attempt ${attempt} of ${attempts} failed (${delivery.reason})${final ? "" : "; retrying"}.`,
+      );
+      if (final) throw new Error(delivery.error);
       await sleep(Math.max(delay, delivery.retryAfterMs));
     }
   }
@@ -40,7 +47,9 @@ class DevPinFailure {
     );
     const dispatch = this.#env.GITHUB_EVENT_NAME === "repository_dispatch";
     const trigger = dispatch ? "repository_dispatch" : "workflow_dispatch";
-    const version = this.#env.PREPARED_CLI_VERSION || this.#env.DISPATCH_CLI_VERSION || "";
+    const prepared = this.#env.PREPARED_CLI_VERSION || "";
+    const version = prepared || this.#env.DISPATCH_CLI_VERSION || "";
+    const label = prepared ? "CLI version" : "Requested CLI version (unverified)";
     const displayVersion =
       version.length <= 128 &&
       /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)
@@ -51,7 +60,7 @@ class DevPinFailure {
     const recovery = dispatch ? restart : `re-run all jobs or ${restart}`;
     return (
       `:warning: Dev CLI pin update failed. Failed jobs: ${jobs.join(", ") || "unavailable"}. ` +
-      `CLI version: ${displayVersion}. Trigger: ${trigger}. Check ${runUrl}. ` +
+      `${displayVersion === "unavailable" ? "CLI version" : label}: ${displayVersion}. Trigger: ${trigger}. Check ${runUrl}. ` +
       `Fix the failing job, then ${recovery} to prepare and verify the current @master version.`
     );
   }
@@ -66,8 +75,11 @@ class DevPinFailure {
         redirect: "manual",
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-    } catch {
+    } catch (error) {
+      const cause = error?.cause?.code ?? error?.code;
+      const kind = /^[A-Z0-9_]{3,64}$/.test(cause ?? "") ? cause : (error?.name ?? "Error");
       return {
+        reason: `network error ${kind}`,
         ok: false,
         retryable: true,
         retryAfterMs: 0,
@@ -81,6 +93,7 @@ class DevPinFailure {
     const seconds = /^\d+$/.test(retryAfter) ? Number(retryAfter) : 0;
     return {
       ok,
+      reason: `HTTP ${status}`,
       retryable: status >= 500 || (status === 429 && seconds <= MAX_RETRY_AFTER_SECONDS),
       retryAfterMs: status === 429 ? seconds * 1_000 : 0,
       error: `Dev pin failure notification failed (HTTP ${status}).`,

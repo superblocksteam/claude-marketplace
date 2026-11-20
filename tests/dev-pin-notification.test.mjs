@@ -21,7 +21,10 @@ class NotificationFixture {
         time: performance.now(),
       });
       const reply = replies[this.requests.length - 1] ?? replies.at(-1) ?? { status: 200 };
-      response.writeHead(reply.status, { Location: this.webhook, ...reply.headers });
+      response.writeHead(reply.status, {
+        Location: this.webhook,
+        ...reply.headers,
+      });
       response.end("fixture-webhook-secret");
     });
     this.server.listen(0, "127.0.0.1");
@@ -85,7 +88,10 @@ test("a dispatch alert identifies the failed job and exact CLI and directs respo
   const { message } = JSON.parse(fixture.requests[0].body);
   assert.match(message, /Failed jobs: verify\./);
   assert.match(message, /Trigger: repository_dispatch\./);
-  assert.match(message, /CLI version: 2\.0\.0-SNAPSHOT\.aa736fe1dc9d8e89\./);
+  assert.match(
+    message,
+    /Requested CLI version \(unverified\): 2\.0\.0-SNAPSHOT\.aa736fe1dc9d8e89\./,
+  );
   assert.match(message, /start a new Update dev pin workflow on main/);
   assert.doesNotMatch(message, /re-run all jobs|Failed jobs:.*publish/i);
 });
@@ -157,8 +163,27 @@ test("an invalid dispatch version cannot inject a Slack mention", async (t) => {
 
 test("invalid webhook configuration cannot leak credentials through fetch errors", async (t) => {
   const fixture = await new NotificationFixture().start(t);
-  const result = await fixture.run({ SLACK_WEBHOOK_URL: "fixture-webhook-secret" });
+  const result = await fixture.run({
+    SLACK_WEBHOOK_URL: "fixture-webhook-secret",
+  });
   assert.notEqual(result.status, 0);
   assert.match(result.output, /could not be delivered/);
   assert.equal(fixture.requests.length, 0);
+});
+
+test("retried deliveries log each failed attempt without webhook details", async (t) => {
+  const fixture = await new NotificationFixture().start(t, { status: 503 }, { status: 200 });
+  const result = await fixture.run();
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /attempt 1 of 3 failed \(HTTP 503\); retrying/i);
+});
+
+test("network failures report the error category without webhook details", async (t) => {
+  const fixture = await new NotificationFixture().start(t);
+  await new Promise((resolve) => fixture.server.close(resolve));
+  fixture.server.listen = undefined;
+  const result = await fixture.run();
+  assert.notEqual(result.status, 0);
+  assert.match(result.output, /ECONNREFUSED/);
+  assert.match(result.output, /attempt 1 of 3 failed/i);
 });
